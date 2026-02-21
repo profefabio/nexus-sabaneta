@@ -1,4 +1,7 @@
-// api/login.js — CommonJS (compatible con Vercel serverless)
+// api/login.js — Columnas reales de Supabase:
+// docentes:    id, nombres, apellidos, email, asignatura, clave
+// estudiantes: id, nombres, apellidos, grado, grupo, clave
+
 const bcrypt = require("bcryptjs");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -10,11 +13,8 @@ module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
 
-  // Verificar variables de entorno
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
-    return res.status(500).json({ 
-      error: "Variables de entorno no configuradas. Agrega SUPABASE_URL y SUPABASE_SERVICE_KEY en Vercel → Settings → Environment Variables." 
-    });
+    return res.status(500).json({ error: "Faltan variables SUPABASE_URL y SUPABASE_SERVICE_KEY en Vercel" });
   }
 
   const supabase = createClient(
@@ -24,7 +24,9 @@ module.exports = async function handler(req, res) {
 
   const { type } = req.body;
 
-  // ── DOCENTE: correo + contraseña ──────────────────────────
+  // ══════════════════════════════════════════════
+  // DOCENTE — busca por columna "email"
+  // ══════════════════════════════════════════════
   if (type === "teacher") {
     const { email, password } = req.body;
     if (!email || !password)
@@ -32,11 +34,11 @@ module.exports = async function handler(req, res) {
 
     const { data: docentes, error } = await supabase
       .from("docentes")
-      .select("*")
-      .ilike("correo", email.toLowerCase().trim())
+      .select("id, nombres, apellidos, email, asignatura, clave")
+      .ilike("email", email.toLowerCase().trim())
       .limit(1);
 
-    if (error) return res.status(500).json({ error: "Error consultando BD: " + error.message });
+    if (error) return res.status(500).json({ error: "Error BD: " + error.message });
     if (!docentes || docentes.length === 0)
       return res.status(401).json({ error: "Correo no registrado" });
 
@@ -44,19 +46,21 @@ module.exports = async function handler(req, res) {
     const isValid = await bcrypt.compare(password, doc.clave);
     if (!isValid) return res.status(401).json({ error: "Contraseña incorrecta" });
 
-    const isAdmin = doc.correo.toLowerCase() === "fabioortiz37422@sabaneta.edu.co";
+    const isAdmin = doc.email.toLowerCase() === "fabioortiz37422@sabaneta.edu.co";
     return res.status(200).json({
       user: {
         id: doc.id,
-        email: doc.correo,
-        name: doc.nombre || doc.nombres || "",
+        email: doc.email,
+        name: `${doc.nombres} ${doc.apellidos}`,
         role: isAdmin ? "admin" : "teacher",
         subject: doc.asignatura || "",
       }
     });
   }
 
-  // ── ESTUDIANTE: nombres + apellidos + grado + grupo ───────
+  // ══════════════════════════════════════════════
+  // ESTUDIANTE — busca por nombres + apellidos + grado + grupo
+  // ══════════════════════════════════════════════
   if (type === "student") {
     const { nombre, apellido, grado, grupo } = req.body;
     if (!nombre || !apellido || !grado || !grupo)
@@ -68,7 +72,7 @@ module.exports = async function handler(req, res) {
       .eq("grado", grado)
       .eq("grupo", grupo);
 
-    if (error) return res.status(500).json({ error: "Error consultando BD: " + error.message });
+    if (error) return res.status(500).json({ error: "Error BD: " + error.message });
     if (!estudiantes || estudiantes.length === 0)
       return res.status(401).json({ error: `No hay estudiantes en grado ${grado} grupo ${grupo}` });
 
@@ -100,4 +104,3 @@ module.exports = async function handler(req, res) {
 
   return res.status(400).json({ error: "Tipo de login no válido" });
 };
-
