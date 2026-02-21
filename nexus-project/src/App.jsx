@@ -11,6 +11,19 @@ const callNexus = async (messages, system) => {
   return data.content?.[0]?.text || "Error al conectar con NEXUS.";
 };
 
+// ─── Usuarios gestionados en api/login.js (con bcrypt) ───────import { useState, useRef, useEffect } from "react";
+
+// ─── Llama al backend seguro (api/chat.js) ───────────────────
+const callNexus = async (messages, system) => {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, system }),
+  });
+  const data = await res.json();
+  return data.content?.[0]?.text || "Error al conectar con NEXUS.";
+};
+
 // ─── Usuarios gestionados en api/login.js (con bcrypt) ───────
 // Las contraseñas NUNCA llegan al navegador
 
@@ -278,7 +291,9 @@ function LoginView({ onLogin, error }) {
 // ═══════════════════════════════════════════════════════════════
 function AdminView({ user, onLogout }) {
   const [tab, setTab] = useState("dashboard");
-  const [users, setUsers] = useState(MOCK_USERS);
+  const [users, setUsers] = useState([
+    { id:"1", email:"fabioortiz37422@sabaneta.edu.co", name:"Fabio Alberto Ortiz M.", role:"admin" },
+  ]);
   const [nu, setNu] = useState({ name:"", email:"", password:"", role:"student", grade:"", subject:"" });
   const [saved, setSaved] = useState(false);
 
@@ -699,3 +714,4 @@ const CSS = `
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.6);}}
 `;
+
