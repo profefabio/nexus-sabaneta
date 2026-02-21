@@ -11,19 +11,6 @@ const callNexus = async (messages, system) => {
   return data.content?.[0]?.text || "Error al conectar con NEXUS.";
 };
 
-// ─── Usuarios gestionados en api/login.js (con bcrypt) ───────import { useState, useRef, useEffect } from "react";
-
-// ─── Llama al backend seguro (api/chat.js) ───────────────────
-const callNexus = async (messages, system) => {
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, system }),
-  });
-  const data = await res.json();
-  return data.content?.[0]?.text || "Error al conectar con NEXUS.";
-};
-
 // ─── Usuarios gestionados en api/login.js (con bcrypt) ───────
 // Las contraseñas NUNCA llegan al navegador
 
@@ -714,4 +701,3 @@ const CSS = `
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.6);}}
 `;
-
