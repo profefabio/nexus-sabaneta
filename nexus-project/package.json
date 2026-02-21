@@ -4,7 +4,9 @@
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "bcryptjs": "^2.4.3",
+    "@supabase/supabase-js": "^2.39.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",

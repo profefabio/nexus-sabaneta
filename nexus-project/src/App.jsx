@@ -11,12 +11,8 @@ const callNexus = async (messages, system) => {
   return data.content?.[0]?.text || "Error al conectar con NEXUS.";
 };
 
-// ─── Usuarios demo (reemplazar con Supabase) ─────────────────
-const MOCK_USERS = [
-  { id: "1", email: "fabioortiz37422@sabaneta.edu.co", password: "admin123", role: "admin", name: "Fabio Alberto Ortiz M." },
-  { id: "2", email: "docente@sabaneta.edu.co", password: "docente123", role: "teacher", name: "Prof. Ejemplo", subject: "Matemáticas" },
-  { id: "3", email: "estudiante1@sabaneta.edu.co", password: "est123", role: "student", name: "Juan Pérez", grade: "9°" },
-];
+// ─── Usuarios gestionados en api/login.js (con bcrypt) ───────
+// Las contraseñas NUNCA llegan al navegador
 
 // ─── Mapa de misiones ─────────────────────────────────────────
 const MISSION_MAP = [
@@ -108,10 +104,24 @@ export default function App() {
   const [view, setView] = useState("login");
   const [loginErr, setLoginErr] = useState("");
 
-  const login = (email, pw) => {
-    const u = MOCK_USERS.find(x => x.email === email && x.password === pw);
-    if (u) { setUser(u); setView(u.role === "admin" ? "admin" : u.role === "teacher" ? "teacher" : "student"); setLoginErr(""); }
-    else setLoginErr("Credenciales incorrectas. Revisa tu correo y contraseña.");
+  const login = async (email, pw) => {
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: pw }),
+      });
+      const data = await res.json();
+      if (res.ok && data.user) {
+        setUser(data.user);
+        setView(data.user.role === "admin" ? "admin" : data.user.role === "teacher" ? "teacher" : "student");
+        setLoginErr("");
+      } else {
+        setLoginErr(data.error || "Credenciales incorrectas. Revisa tu correo y contraseña.");
+      }
+    } catch {
+      setLoginErr("Error de conexión. Intenta de nuevo.");
+    }
   };
   const logout = () => { setUser(null); setView("login"); };
 
@@ -161,8 +171,19 @@ function LoginView({ onLogin, error }) {
             Ingresar al sistema ➤
           </button>
           <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:14 }}>
+            <div style={{ fontSize:10, fontWeight:600, color:C.muted, marginBottom:10, textTransform:"uppercase", letterSpacing:1 }}>Administrador de la plataforma</div>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{ width:40, height:40, borderRadius:"50%", background:`${C.accent}15`, border:`1.5px solid ${C.accent}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👑</div>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Fabio Alberto Ortiz M.</div>
+                <div style={{ fontSize:11, color:C.accent, marginTop:2 }}>fabioortiz37422@sabaneta.edu.co</div>
+                <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>Tecnología e Informática · I.E. Sabaneta · Grados 7–11</div>
+              </div>
+            </div>
+          </div>
+          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:14 }}>
             <div style={{ fontSize:10, fontWeight:600, color:C.muted, marginBottom:8, textTransform:"uppercase", letterSpacing:1 }}>Cuentas de prueba</div>
-            {[["👑 Admin","fabioortiz37422@sabaneta.edu.co","admin123"],["📚 Docente","docente@sabaneta.edu.co","docente123"],["🎓 Estudiante","estudiante1@sabaneta.edu.co","est123"]].map(([r,e,p],i)=>(
+            {[["📚 Docente","docente@sabaneta.edu.co","docente123"],["🎓 Estudiante","estudiante1@sabaneta.edu.co","est123"]].map(([r,e,p],i)=>(
               <div key={i} style={{ fontSize:11, color:C.muted, padding:"3px 0", lineHeight:1.6 }}>{r}: {e} / {p}</div>
             ))}
           </div>
