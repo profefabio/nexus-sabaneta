@@ -510,33 +510,45 @@ function TeacherView({ user, onLogout }) {
 }
 
 function AdminUsuarios() {
-  const [tab, setTab] = useState("docentes");
-  const [data, setData] = useState({ docentes:[], estudiantes:[] });
+  const [tab, setTab]       = useState("docentes");
+  const [data, setData]     = useState({ docentes:[], estudiantes:[] });
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [buscar, setBuscar] = useState("");
 
   const cargar = () => {
-    setLoading(true);
-    fetch("/api/usuarios").then(r=>r.json()).then(d=>{ setData(d); setLoading(false); }).catch(()=>setLoading(false));
+    setLoading(true); setApiError(null);
+    fetch("/api/usuarios")
+      .then(r => r.json())
+      .then(d => {
+        // Siempre inicializar arrays aunque la respuesta sea parcial
+        setData({ docentes: d.docentes||[], estudiantes: d.estudiantes||[] });
+        setLoading(false);
+      })
+      .catch(err => { setApiError(err.message); setLoading(false); });
   };
-  useEffect(()=>cargar(), []);
+  useEffect(() => cargar(), []);
 
   const eliminar = async (id, tipo, nombre) => {
     if (!confirm(`¿Eliminar a ${nombre}? Esta acción no se puede deshacer.`)) return;
     setDeleting(id);
-    const res = await fetch(`/api/usuarios?id=${id}&tipo=${tipo}`, { method:"DELETE" });
-    const d = await res.json();
-    if (d.success) cargar();
-    else alert("Error: " + d.error);
+    try {
+      const res = await fetch(`/api/usuarios?id=${id}&tipo=${tipo}`, { method:"DELETE" });
+      const d = await res.json();
+      if (d.success) cargar();
+      else alert("Error al eliminar: " + d.error);
+    } catch(e) { alert("Error de red: " + e.message); }
     setDeleting(null);
   };
 
-  const lista = tab==="docentes" ? data.docentes : data.estudiantes;
+  // Columnas reales en Supabase: nombres, apellidos, fecha_registro
+  const lista = tab==="docentes" ? (data.docentes||[]) : (data.estudiantes||[]);
   const filtrada = lista.filter(u => {
-    const nombre = tab==="docentes" ? u.nombre : `${u.nombre} ${u.apellido}`;
-    return nombre.toLowerCase().includes(buscar.toLowerCase()) ||
+    const nombreCompleto = `${u.nombres||""} ${u.apellidos||""}`.toLowerCase();
+    return nombreCompleto.includes(buscar.toLowerCase()) ||
       (u.email||"").toLowerCase().includes(buscar.toLowerCase()) ||
+      (u.asignatura||"").toLowerCase().includes(buscar.toLowerCase()) ||
       (u.grado||"").includes(buscar);
   });
 
@@ -546,32 +558,35 @@ function AdminUsuarios() {
       <div style={{ display:"flex", background:C.surface, borderRadius:12, padding:4, marginBottom:20, border:`1px solid ${C.border}`, width:"fit-content", gap:4 }}>
         {[["docentes","📚","Docentes",data.docentes?.length],["estudiantes","🎓","Estudiantes",data.estudiantes?.length]].map(([t,ic,lb,cnt])=>(
           <button key={t} onClick={()=>{setTab(t);setBuscar("");}} style={{ padding:"8px 20px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:13, background:tab===t?`linear-gradient(135deg,${C.accent},${C.accent2})`:"transparent", color:tab===t?"#fff":C.muted }}>
-            {ic} {lb} {cnt!=null&&<span style={{ marginLeft:6, fontSize:11, opacity:0.8 }}>({cnt})</span>}
+            {ic} {lb} <span style={{ marginLeft:6, fontSize:11, opacity:0.8 }}>({cnt??0})</span>
           </button>
         ))}
       </div>
 
       {/* Buscador */}
       <div style={{ marginBottom:14 }}>
-        <input style={{ ...inp, maxWidth:340 }} placeholder={tab==="docentes"?"Buscar por nombre o email...":"Buscar por nombre o grado..."} value={buscar} onChange={e=>setBuscar(e.target.value)} />
+        <input style={{ ...inp, maxWidth:360 }} placeholder={tab==="docentes"?"Buscar por nombre, email o asignatura...":"Buscar por nombre o grado..."} value={buscar} onChange={e=>setBuscar(e.target.value)} />
       </div>
 
-      {loading && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando...</div>}
+      {loading   && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando usuarios...</div>}
+      {apiError  && <div style={{ background:"#ff444422", border:"1px solid #ff444444", color:"#ff7777", padding:"10px 14px", borderRadius:8, fontSize:13, marginBottom:12 }}>⚠️ Error: {apiError}</div>}
 
       {!loading && tab==="docentes" && (
-        <Card title={`📚 Docentes registrados — ${filtrada.length} resultado${filtrada.length!==1?"s":""}`}>
-          {filtrada.length===0 && <div style={{ color:C.muted, fontSize:12 }}>Sin docentes{buscar?" con ese nombre":""} registrados.</div>}
+        <Card title={`📚 Docentes — ${filtrada.length} resultado${filtrada.length!==1?"s":""}`}>
+          {filtrada.length===0 && <div style={{ color:C.muted, fontSize:12 }}>Sin docentes{buscar?" con ese filtro":""} registrados.</div>}
           {filtrada.map(d=>(
             <div key={d.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:C.surface, borderRadius:10, marginBottom:8, border:`1px solid ${C.border}` }}>
               <div style={{ width:38, height:38, borderRadius:"50%", background:`${C.accent2}22`, border:`1.5px solid ${C.accent2}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📚</div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:700 }}>{d.nombre||"—"}</div>
-                <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{d.email||"—"} · {d.rol||"docente"}</div>
+                <div style={{ fontSize:13, fontWeight:700 }}>{d.nombres||"—"} {d.apellidos||""}</div>
+                <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
+                  {d.email||"Sin email"} {d.asignatura?`· ${d.asignatura}`:""}
+                </div>
               </div>
-              <div style={{ fontSize:10, color:C.muted }}>
-                {d.created_at ? new Date(d.created_at).toLocaleDateString("es-CO") : "—"}
+              <div style={{ fontSize:10, color:C.muted, flexShrink:0 }}>
+                {d.fecha_registro ? new Date(d.fecha_registro).toLocaleDateString("es-CO") : "—"}
               </div>
-              <button onClick={()=>eliminar(d.id,"docente",d.nombre)} disabled={deleting===d.id} style={{ padding:"6px 14px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:12, cursor:"pointer", flexShrink:0 }}>
+              <button onClick={()=>eliminar(d.id,"docente",`${d.nombres} ${d.apellidos}`)} disabled={deleting===d.id} style={{ padding:"6px 14px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:12, cursor:"pointer", flexShrink:0 }}>
                 {deleting===d.id?"...":"🗑️ Eliminar"}
               </button>
             </div>
@@ -580,19 +595,21 @@ function AdminUsuarios() {
       )}
 
       {!loading && tab==="estudiantes" && (
-        <Card title={`🎓 Estudiantes registrados — ${filtrada.length} resultado${filtrada.length!==1?"s":""}`}>
+        <Card title={`🎓 Estudiantes — ${filtrada.length} resultado${filtrada.length!==1?"s":""}`}>
           {filtrada.length===0 && <div style={{ color:C.muted, fontSize:12 }}>Sin estudiantes{buscar?" con ese filtro":""} registrados.</div>}
           {filtrada.map(e=>(
             <div key={e.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:C.surface, borderRadius:10, marginBottom:8, border:`1px solid ${C.border}` }}>
               <div style={{ width:38, height:38, borderRadius:"50%", background:`${C.accent3}22`, border:`1.5px solid ${C.accent3}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>🎓</div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:700 }}>{e.nombre} {e.apellido}</div>
-                <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>Grado {e.grado||"—"} · Grupo {e.grupo||"—"} {e.email?`· ${e.email}`:""}</div>
+                <div style={{ fontSize:13, fontWeight:700 }}>{e.nombres||"—"} {e.apellidos||""}</div>
+                <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
+                  Grado {e.grado||"—"} · Grupo {e.grupo||"—"}
+                </div>
               </div>
-              <div style={{ fontSize:10, color:C.muted }}>
-                {e.created_at ? new Date(e.created_at).toLocaleDateString("es-CO") : "—"}
+              <div style={{ fontSize:10, color:C.muted, flexShrink:0 }}>
+                {e.fecha_registro ? new Date(e.fecha_registro).toLocaleDateString("es-CO") : "—"}
               </div>
-              <button onClick={()=>eliminar(e.id,"estudiante",`${e.nombre} ${e.apellido}`)} disabled={deleting===e.id} style={{ padding:"6px 14px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:12, cursor:"pointer", flexShrink:0 }}>
+              <button onClick={()=>eliminar(e.id,"estudiante",`${e.nombres} ${e.apellidos}`)} disabled={deleting===e.id} style={{ padding:"6px 14px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:12, cursor:"pointer", flexShrink:0 }}>
                 {deleting===e.id?"...":"🗑️ Eliminar"}
               </button>
             </div>
@@ -602,7 +619,7 @@ function AdminUsuarios() {
 
       <InfoBox title="💡 Para agregar usuarios">
         <Row k="Docentes" v="Insertar en tabla 'docentes' en Supabase con contraseña hasheada (bcrypt cost 10)" />
-        <Row k="Estudiantes" v="Se crean automáticamente al iniciar sesión por primera vez" />
+        <Row k="Estudiantes" v="Se crean automáticamente al iniciar sesión" />
       </InfoBox>
     </Page>
   );
