@@ -8,11 +8,11 @@ module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada en Vercel → Settings → Environment Variables." });
+    return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada en Vercel." });
   }
 
   const { messages, system } = req.body;
-  if (!messages || !system) return res.status(400).json({ error: "Faltan parámetros" });
+  if (!messages || !system) return res.status(400).json({ error: "Faltan parametros" });
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -23,15 +23,23 @@ module.exports = async function handler(req, res) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
         system,
         messages,
       }),
     });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        error: "Error Anthropic " + response.status + ": " + (errBody?.error?.message || response.statusText),
+      });
+    }
+
     const data = await response.json();
     return res.status(200).json(data);
   } catch (error) {
-    return res.status(500).json({ error: "Error conectando con Anthropic: " + error.message });
+    return res.status(500).json({ error: "Error de red: " + error.message });
   }
 };
