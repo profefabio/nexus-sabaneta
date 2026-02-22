@@ -14,6 +14,23 @@ module.exports = async function handler(req, res) {
   const { messages, system } = req.body;
   if (!messages || !system) return res.status(400).json({ error: "Faltan parametros" });
 
+  // ── CORRECCIÓN CRÍTICA ────────────────────────────────────────
+  // Anthropic exige que los mensajes empiecen siempre con rol "user".
+  // El mensaje de bienvenida de NEXUS tiene rol "assistant" y provoca
+  // error 400. Lo eliminamos aquí antes de enviar a la API.
+  const cleanMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
+
+  // Quitar mensajes "assistant" del inicio hasta encontrar el primer "user"
+  let start = 0;
+  while (start < cleanMessages.length && cleanMessages[start].role !== "user") {
+    start++;
+  }
+  const validMessages = cleanMessages.slice(start);
+
+  if (validMessages.length === 0) {
+    return res.status(400).json({ error: "No hay mensajes de usuario validos" });
+  }
+
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -26,14 +43,15 @@ module.exports = async function handler(req, res) {
         model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         system,
-        messages,
+        messages: validMessages,
       }),
     });
 
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({}));
+      const msg = errBody?.error?.message || response.statusText;
       return res.status(response.status).json({
-        error: "Error Anthropic " + response.status + ": " + (errBody?.error?.message || response.statusText),
+        error: "Error Anthropic " + response.status + ": " + msg,
       });
     }
 
