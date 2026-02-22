@@ -12,29 +12,40 @@ module.exports = async function handler(req, res) {
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-  // GET — listar docentes y estudiantes
   if (req.method === "GET") {
+    // Columnas reales: nombres, apellidos, fecha_registro
     const [
-      { data: docentes, error: e1 },
+      { data: docentes,    error: e1 },
       { data: estudiantes, error: e2 },
     ] = await Promise.all([
-      supabase.from("docentes").select("id, nombre, email, rol, created_at").order("nombre"),
-      supabase.from("estudiantes").select("id, nombre, apellido, grado, grupo, email, created_at").order("nombre"),
+      supabase.from("docentes")
+        .select("id, institucion_id, nombres, apellidos, email, asignatura, fecha_registro")
+        .order("nombres"),
+      supabase.from("estudiantes")
+        .select("id, institucion_id, nombres, apellidos, grado, grupo, fecha_registro")
+        .order("nombres"),
     ]);
-    if (e1 || e2) return res.status(500).json({ error: (e1||e2).message });
-    return res.status(200).json({ docentes: docentes||[], estudiantes: estudiantes||[] });
+
+    if (e1) console.error("Error docentes:", e1.message);
+    if (e2) console.error("Error estudiantes:", e2.message);
+
+    return res.status(200).json({
+      docentes:    docentes    || [],
+      estudiantes: estudiantes || [],
+    });
   }
 
-  // DELETE — eliminar usuario
   if (req.method === "DELETE") {
     const { id, tipo } = req.query;
     if (!id || !tipo) return res.status(400).json({ error: "Faltan id y tipo" });
+
     const tabla = tipo === "docente" ? "docentes" : "estudiantes";
     const { error } = await supabase.from(tabla).delete().eq("id", id);
     if (error) return res.status(500).json({ error: error.message });
-    // Si es estudiante, borrar también su progreso
+
+    // Borrar progreso si es estudiante
     if (tipo === "estudiante") {
-      await supabase.from("nexus_progreso").delete().eq("estudiante_id", id);
+      await supabase.from("nexus_progreso").delete().eq("estudiante_id", String(id));
     }
     return res.status(200).json({ success: true });
   }
