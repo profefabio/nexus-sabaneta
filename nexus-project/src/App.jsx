@@ -257,7 +257,28 @@ function DashboardPanel({ user, misiones }) {
           <button onClick={()=>setOrdenAZ(!ordenAZ)} style={{ padding:"6px 10px", background:ordenAZ?`${C.accent2}33`:C.surface, border:`1px solid ${ordenAZ?C.accent2:C.border}`, borderRadius:8, color:ordenAZ?C.accent2:C.muted, fontSize:11, cursor:"pointer" }}>
             {ordenAZ?"🔤 A→Z":"🏆 XP"}
           </button>
-          <button onClick={()=>downloadExcel(top.map((e,i)=>({Pos:i+1,Nombre:e.nombre_estudiante,Grado:e.grado,Grupo:e.grupo||"—",XP:e.xp_total,Nivel:e.nivel||1})),`nexus_top`)} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>
+          <button onClick={()=>{
+            const sorted=[...top].sort((a,b)=>{
+              const apA=(a.nombre_estudiante||"").split(" ").slice(1).join(" ")||a.nombre_estudiante||"";
+              const apB=(b.nombre_estudiante||"").split(" ").slice(1).join(" ")||b.nombre_estudiante||"";
+              return apA.localeCompare(apB,"es");
+            });
+            downloadExcel(sorted.map((e,i)=>{
+              const partes=(e.nombre_estudiante||"").split(" ");
+              const nombres=partes[0]||"";
+              const apellidos=partes.slice(1).join(" ")||"";
+              return {
+                "#":i+1,
+                Apellidos:apellidos||e.nombre_estudiante,
+                Nombres:nombres,
+                Grado:e.grado,
+                Grupo:e.grupo||"—",
+                "XP":e.xp_total,
+                "Nota":((xp)=>{ const bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; if(!xp||xp<=0)return'1.0'; if(xp>=250)return'5.0'; for(let i=0;i<bp.length-1;i++){if(xp>=bp[i].x&&xp<=bp[i+1].x){const t=(xp-bp[i].x)/(bp[i+1].x-bp[i].x);return(Math.round((bp[i].n+t*(bp[i+1].n-bp[i].n))*10)/10).toFixed(1);}} return'5.0'; })(e.xp_total),
+                Nivel:e.nivel||1
+              };
+            }),"nexus_top_por_apellido");
+          }} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>
             ⬇️ Excel
           </button>
         </div>
@@ -355,7 +376,28 @@ function ProgresoPanel({ user }) {
               <option value="todos">Todos los grupos</option>{["1","2","3","4"].map(g=><option key={g} value={g}>Grupo {g}</option>)}
             </select>
             <button onClick={()=>setOrdenAZ(!ordenAZ)} style={{ padding:"6px 10px", background:ordenAZ?`${C.accent2}33`:C.surface, border:`1px solid ${ordenAZ?C.accent2:C.border}`, borderRadius:8, color:ordenAZ?C.accent2:C.muted, fontSize:11, cursor:"pointer" }}>{ordenAZ?"🔤 A→Z":"🏆 XP"}</button>
-            <button onClick={()=>downloadExcel(estudiantes.map((e,i)=>({Pos:i+1,Nombre:e.nombre_estudiante,Grado:e.grado,Grupo:e.grupo||"—",XP:e.xp_total,Nivel:e.nivel||1})),`progreso`)} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>⬇️ Excel</button>
+            <button onClick={()=>{
+              const sorted=[...estudiantes].sort((a,b)=>{
+                const apA=(a.nombre_estudiante||"").split(" ").slice(1).join(" ")||a.nombre_estudiante||"";
+                const apB=(b.nombre_estudiante||"").split(" ").slice(1).join(" ")||b.nombre_estudiante||"";
+                return apA.localeCompare(apB,"es");
+              });
+              downloadExcel(sorted.map((e,i)=>{
+                const partes=(e.nombre_estudiante||"").split(" ");
+                const nombres=partes[0]||"";
+                const apellidos=partes.slice(1).join(" ")||"";
+                return {
+                  "#":i+1,
+                  Apellidos:apellidos||e.nombre_estudiante,
+                  Nombres:nombres,
+                  Grado:e.grado,
+                  Grupo:e.grupo||"—",
+                  "XP":e.xp_total,
+                  "Nota":((xp)=>{ const bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; if(!xp||xp<=0)return'1.0'; if(xp>=250)return'5.0'; for(let i=0;i<bp.length-1;i++){if(xp>=bp[i].x&&xp<=bp[i+1].x){const t=(xp-bp[i].x)/(bp[i+1].x-bp[i].x);return(Math.round((bp[i].n+t*(bp[i+1].n-bp[i].n))*10)/10).toFixed(1);}} return'5.0'; })(e.xp_total),
+                  Nivel:e.nivel||1
+                };
+              }),"progreso_por_apellido");
+            }} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>⬇️ Excel</button>
           </div>
           {estudiantes.length>0?estudiantes.map((e,i)=>(
             <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:C.surface, borderRadius:10, marginBottom:5, border:`1px solid ${C.border}` }}>
