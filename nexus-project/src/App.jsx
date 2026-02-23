@@ -198,7 +198,16 @@ function DashboardPanel({ user, misiones }) {
   const [ordenAZ, setOrdenAZ] = useState(false);
   const isMobile = useIsMobile();
 
-  useEffect(() => { fetch("/api/stats").then(r=>r.json()).then(d=>{ setStats(d); setLoading(false); }).catch(()=>setLoading(false)); }, []);
+  useEffect(() => {
+    // Docente filtra por sus misiones; admin ve todo
+    const params = user?.role === "teacher"
+      ? `?docente_id=${user.id}&role=teacher`
+      : `?role=admin`;
+    fetch(`/api/stats${params}`)
+      .then(r=>r.json())
+      .then(d=>{ setStats(d); setLoading(false); })
+      .catch(()=>setLoading(false));
+  }, [user?.id]);
 
   const grados = stats?.porGrado ? Object.keys(stats.porGrado).sort() : [];
   let top = stats?.topEstudiantes || [];
@@ -289,14 +298,22 @@ function DashboardPanel({ user, misiones }) {
 // ═══════════════════════════════════════════════════════════════
 // PROGRESO PANEL
 // ═══════════════════════════════════════════════════════════════
-function ProgresoPanel() {
+function ProgresoPanel({ user }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filtroGrado, setFiltroGrado] = useState("todos");
   const [filtroGrupo, setFiltroGrupo] = useState("todos");
   const [ordenAZ, setOrdenAZ] = useState(false);
 
-  useEffect(() => { fetch("/api/stats").then(r=>r.json()).then(d=>{ setStats(d); setLoading(false); }).catch(()=>setLoading(false)); }, []);
+  useEffect(() => {
+    const params = user?.role === "teacher"
+      ? `?docente_id=${user.id}&role=teacher`
+      : `?role=admin`;
+    fetch(`/api/stats${params}`)
+      .then(r=>r.json())
+      .then(d=>{ setStats(d); setLoading(false); })
+      .catch(()=>setLoading(false));
+  }, [user?.id]);
 
   const grados = stats?.porGrado ? Object.keys(stats.porGrado).sort() : [];
   let estudiantes = stats?.topEstudiantes || [];
@@ -307,7 +324,19 @@ function ProgresoPanel() {
   return (
     <Page title="📊 Progreso Estudiantil">
       {loading && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando...</div>}
-      {!loading && stats && <>
+
+      {!loading && stats?.sinMisiones && (
+        <div style={{ background:`${C.accent2}10`, border:`1px solid ${C.accent2}33`, borderRadius:14, padding:"24px 20px", textAlign:"center", marginTop:16 }}>
+          <div style={{ fontSize:32, marginBottom:12 }}>🗺️</div>
+          <div style={{ fontSize:16, fontWeight:800, color:C.accent2, marginBottom:8 }}>Aún no tienes misiones creadas</div>
+          <div style={{ fontSize:13, color:C.muted, lineHeight:1.7 }}>
+            El progreso de tus estudiantes aparecerá aquí cuando trabajen en tus misiones.<br/>
+            Ve a <strong style={{color:C.accent}}>Mis Misiones</strong> para crear la primera. 🚀
+          </div>
+        </div>
+      )}
+
+      {!loading && stats && !stats.sinMisiones && <>
         <Card title="📈 Actividad por Grado">
           {grados.length>0?grados.map(g=>{
             const d=stats.porGrado[g]; const mx=Math.max(...grados.map(k=>stats.porGrado[k].xp),1);
@@ -449,7 +478,7 @@ function AdminView({ user, onLogout }) {
       {id:"missions",icon:"🗺️",label:"Misiones"},{id:"users",icon:"👥",label:"Usuarios"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
-      {tab==="progreso"&&<ProgresoPanel />}
+      {tab==="progreso"&&<ProgresoPanel user={user} />}
       {tab==="missions"&&<MisionesPanel user={user} misiones={misiones} setMisiones={setMisiones} loadingM={loadingM} />}
       {tab==="users"&&<AdminUsuarios />}
     </Layout>
@@ -471,7 +500,7 @@ function TeacherView({ user, onLogout }) {
       {id:"missions",icon:"🗺️",label:"Mis Misiones"},{id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
-      {tab==="progreso"&&<ProgresoPanel />}
+      {tab==="progreso"&&<ProgresoPanel user={user} />}
       {tab==="missions"&&<MisionesPanel user={user} misiones={misiones} setMisiones={setMisiones} loadingM={loadingM} />}
       {tab==="config"&&(
         <Page title="⚙️ Configura NEXUS">
