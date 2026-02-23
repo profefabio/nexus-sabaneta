@@ -93,28 +93,7 @@ Siempre en español colombiano, cálido y motivador.`;
 
 const C = { bg:"#070d1a",surface:"#0d1526",card:"#111e33",border:"#1a3050",accent:"#00c8ff",accent2:"#8b5cf6",accent3:"#10d98a",text:"#e2e8f0",muted:"#4a6080",user:"#162040" };
 
-// ─── XP → Nota (1.0–5.0) — function declaration para hoisting seguro ──
-function xpToNota(xp) {
-  const bp = [{xp:0,n:1.0},{xp:25,n:2.0},{xp:75,n:3.0},{xp:150,n:4.0},{xp:250,n:5.0}];
-  if (!xp || xp <= 0) return "1.0";
-  if (xp >= 250) return "5.0";
-  for (let i = 0; i < bp.length - 1; i++) {
-    if (xp >= bp[i].xp && xp <= bp[i+1].xp) {
-      const t = (xp - bp[i].xp) / (bp[i+1].xp - bp[i].xp);
-      return (Math.round((bp[i].n + t*(bp[i+1].n - bp[i].n))*10)/10).toFixed(1);
-    }
-  }
-  return "5.0";
-}
 
-function notaColor(nota) {
-  const n = parseFloat(nota);
-  if (n >= 4.5) return "#10d98a";
-  if (n >= 4.0) return "#22c55e";
-  if (n >= 3.5) return "#eab308";
-  if (n >= 3.0) return "#f97316";
-  return "#ef4444";
-}
 
 // ─── Compañeros del mismo grado/grupo (para equipos) ─────────
 const getCompaneros = async (grado, grupo, exclude_id) => {
@@ -279,7 +258,7 @@ function DashboardPanel({ user, misiones }) {
             <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·{e.grupo||"—"}</div></div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
               <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
-              <div style={{ fontSize:11, fontWeight:800, color:notaColor(xpToNota(e.xp_total)) }}>{xpToNota(e.xp_total)}</div>
+              {((xpVal) => { const _bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; let _nota="1.0"; if(xpVal>=250){_nota="5.0";}else if(xpVal>0){for(let _i=0;_i<_bp.length-1;_i++){if(xpVal>=_bp[_i].x&&xpVal<=_bp[_i+1].x){const _t=(xpVal-_bp[_i].x)/(_bp[_i+1].x-_bp[_i].x);_nota=(Math.round((_bp[_i].n+_t*(_bp[_i+1].n-_bp[_i].n))*10)/10).toFixed(1);break;}}} const _n=parseFloat(_nota); const _c=_n>=4.5?"#10d98a":_n>=4.0?"#22c55e":_n>=3.5?"#eab308":_n>=3.0?"#f97316":"#ef4444"; return <div style={{fontSize:11,fontWeight:800,color:_c}}>{_nota}</div>; })(e.xp_total)}
             </div>
           </div>
         )) : <div style={{ color:C.muted, fontSize:12 }}>Sin actividad registrada.</div>}
@@ -355,7 +334,7 @@ function ProgresoPanel() {
               <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·Grp{e.grupo||"—"}·Nv{e.nivel||1}</div></div>
               <div style={{ textAlign:"right", flexShrink:0 }}>
                 <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
-                <div style={{ fontSize:12, fontWeight:800, color:notaColor(xpToNota(e.xp_total)) }}>{xpToNota(e.xp_total)}</div>
+                {((xpVal) => { const _bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; let _nota="1.0"; if(xpVal>=250){_nota="5.0";}else if(xpVal>0){for(let _i=0;_i<_bp.length-1;_i++){if(xpVal>=_bp[_i].x&&xpVal<=_bp[_i+1].x){const _t=(xpVal-_bp[_i].x)/(_bp[_i+1].x-_bp[_i].x);_nota=(Math.round((_bp[_i].n+_t*(_bp[_i+1].n-_bp[_i].n))*10)/10).toFixed(1);break;}}} const _n=parseFloat(_nota); const _c=_n>=4.5?"#10d98a":_n>=4.0?"#22c55e":_n>=3.5?"#eab308":_n>=3.0?"#f97316":"#ef4444"; return <div style={{fontSize:12,fontWeight:800,color:_c}}>{_nota}</div>; })(e.xp_total)}
               </div>
             </div>
           )):<div style={{ color:C.muted, fontSize:12 }}>Sin estudiantes con este filtro.</div>}
