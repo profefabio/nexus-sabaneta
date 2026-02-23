@@ -231,7 +231,10 @@ function DashboardPanel({ user, misiones }) {
           <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", background:C.surface, borderRadius:10, marginBottom:5, border:`1px solid ${C.border}` }}>
             <span style={{ fontFamily:"'Orbitron',monospace", color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":C.muted, fontWeight:900, fontSize:11, width:22 }}>#{i+1}</span>
             <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·{e.grupo||"—"}</div></div>
-            <span style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11, flexShrink:0 }}>{e.xp_total} XP</span>
+            <div style={{ textAlign:"right", flexShrink:0 }}>
+              <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
+              <div style={{ fontSize:11, fontWeight:800, color:notaColor(xpToNota(e.xp_total)) }}>{xpToNota(e.xp_total)}</div>
+            </div>
           </div>
         )) : <div style={{ color:C.muted, fontSize:12 }}>Sin actividad registrada.</div>}
       </Card>
@@ -304,7 +307,10 @@ function ProgresoPanel() {
             <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:C.surface, borderRadius:10, marginBottom:5, border:`1px solid ${C.border}` }}>
               <span style={{ fontFamily:"'Orbitron',monospace", color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":C.muted, fontSize:10, width:22, fontWeight:900 }}>#{i+1}</span>
               <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·Grp{e.grupo||"—"}·Nv{e.nivel||1}</div></div>
-              <span style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:12, flexShrink:0 }}>{e.xp_total} XP</span>
+              <div style={{ textAlign:"right", flexShrink:0 }}>
+                <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
+                <div style={{ fontSize:12, fontWeight:800, color:notaColor(xpToNota(e.xp_total)) }}>{xpToNota(e.xp_total)}</div>
+              </div>
             </div>
           )):<div style={{ color:C.muted, fontSize:12 }}>Sin estudiantes con este filtro.</div>}
         </Card>
@@ -565,7 +571,7 @@ function StudentView({ user, onLogout }) {
             <NexusChat
               prompt={buildPrompt("Tecnología e Informática", user.grade||"7-11",
                 (mission?`Trabajan en: ${missionData?.title}. `:"")+
-                (equipo?`Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes (${[user.name,...equipo.integrantes].join(", ")}). Cuando respondas dirígete al equipo completo e incluye actividades para que participen todos aunque solo uno tenga el dispositivo.`:"")
+                (equipo?`Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes. Líder: ${user.name}. Compañeros: ${equipo.integrantes.map(i=>`${i.nombres} ${i.apellidos}`).join(", ")}. Cuando respondas dirígete al equipo completo e incluye preguntas y actividades para que todos participen aunque solo uno tenga el dispositivo.`:"")
               )}
               userName={equipo?`Equipo ${equipo.nombre}`:user.name}
               user={user} misionId={mission} equipo={equipo}
@@ -582,11 +588,16 @@ function StudentView({ user, onLogout }) {
         <div style={{ position:"fixed", inset:0, background:"#000a", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
           <div style={{ background:C.card, border:`1px solid ${C.accent2}`, borderRadius:16, padding:24, maxWidth:380, width:"100%" }}>
             <div style={{ fontSize:16, fontWeight:800, marginBottom:14 }}>👥 Equipo: {equipo.nombre}</div>
-            <div style={{ marginBottom:12 }}>{[user.name,...equipo.integrantes].map((n,i)=>(
-              <div key={i} style={{ padding:"7px 10px", background:C.surface, borderRadius:8, marginBottom:5, fontSize:13 }}>
-                {i===0?"⭐ ":"🎓 "}{n}{i===0?" (tú)":""}
+            <div style={{ marginBottom:12 }}>
+              <div style={{ padding:"7px 10px", background:`${C.accent}15`, borderRadius:8, marginBottom:5, fontSize:13, border:`1px solid ${C.accent}33` }}>
+                ⭐ {user.name} <span style={{ fontSize:10, color:C.accent }}>(líder)</span>
               </div>
-            ))}</div>
+              {equipo.integrantes.map((m,i)=>(
+                <div key={i} style={{ padding:"7px 10px", background:C.surface, borderRadius:8, marginBottom:5, fontSize:13 }}>
+                  🎓 {m.nombres} {m.apellidos}
+                </div>
+              ))}
+            </div>
             <button onClick={()=>setShowEquipo(false)} style={{ width:"100%", padding:"10px", background:`linear-gradient(135deg,${C.accent},${C.accent2})`, border:"none", borderRadius:10, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer" }}>Cerrar</button>
           </div>
         </div>
@@ -596,57 +607,129 @@ function StudentView({ user, onLogout }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PANEL EQUIPO
+// PANEL EQUIPO — compañeros cargados desde Supabase
 // ═══════════════════════════════════════════════════════════════
 function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
-  const [nombre, setNombre] = useState(equipo?.nombre||"");
-  const [integrante, setIntegrante] = useState("");
-  const [lista, setLista] = useState(equipo?.integrantes||[]);
-  const [saved, setSaved] = useState(false);
+  const [nombre, setNombre]           = useState(equipo?.nombre || "");
+  const [seleccionados, setSeleccionados] = useState(equipo?.integrantes || []); // [{id,nombres,apellidos}]
+  const [companeros, setCompaneros]   = useState([]);
+  const [loadingC, setLoadingC]       = useState(true);
+  const [buscar, setBuscar]           = useState("");
+  const [saved, setSaved]             = useState(false);
 
-  const agregar = () => {
-    const t=integrante.trim(); if(!t||lista.includes(t)) return;
-    setLista(prev=>[...prev,t]); setIntegrante("");
+  useEffect(() => {
+    if (!user.grade || !user.group) { setLoadingC(false); return; }
+    getCompaneros(user.grade, user.group, user.id)
+      .then(c => { setCompaneros(c); setLoadingC(false); });
+  }, [user.grade, user.group, user.id]);
+
+  const toggle = (c) => {
+    setSeleccionados(prev =>
+      prev.find(x => x.id === c.id)
+        ? prev.filter(x => x.id !== c.id)
+        : [...prev, c]
+    );
   };
-  const quitar = (n) => setLista(prev=>prev.filter(x=>x!==n));
+
   const guardar = () => {
-    if(!nombre.trim()) return;
-    setEquipo({ nombre:nombre.trim(), integrantes:lista });
-    setSaved(true); setTimeout(()=>{ setSaved(false); onIrChat(); },1200);
+    if (!nombre.trim()) return;
+    setEquipo({ nombre: nombre.trim(), integrantes: seleccionados });
+    setSaved(true);
+    setTimeout(() => { setSaved(false); onIrChat(); }, 1200);
   };
-  const disolver = () => { if(confirm("¿Disolver el equipo?")){ setEquipo(null); setNombre(""); setLista([]); } };
+
+  const disolver = () => {
+    if (confirm("¿Disolver el equipo?")) {
+      setEquipo(null); setNombre(""); setSeleccionados([]);
+    }
+  };
+
+  const filtrados = companeros.filter(c => {
+    const full = `${c.nombres} ${c.apellidos}`.toLowerCase();
+    return full.includes(buscar.toLowerCase());
+  });
 
   return (
     <Page title="👥 Mi Equipo" desc="Trabaja en equipo. El dispositivo lo comparten pero el conocimiento es de todos.">
-      <div style={{ background:`${C.accent2}10`, border:`1px solid ${C.accent2}33`, borderRadius:12, padding:"14px 16px", marginBottom:20, fontSize:13, lineHeight:1.8 }}>
-        <strong style={{ color:C.accent2 }}>¿Cómo funciona el modo equipo?</strong><br/>
-        Un estudiante tiene el dispositivo y escribe. Los demás participan en voz alta. NEXUS sabrá que es un equipo y hará actividades para que todos participen. El XP se acumula para el equipo. 🏆
+
+      {/* Info */}
+      <div style={{ background:`${C.accent2}10`, border:`1px solid ${C.accent2}33`, borderRadius:12, padding:"12px 14px", marginBottom:18, fontSize:12, lineHeight:1.8 }}>
+        <strong style={{ color:C.accent2 }}>¿Cómo funciona?</strong><br/>
+        El <strong>líder</strong> (quien tiene el dispositivo) escoge sus compañeros del mismo grado y grupo.
+        Los demás participan en voz alta y NEXUS les da actividades para todos. 🏆<br/>
+        <span style={{ color:C.accent3 }}>El XP y la nota del equipo quedan registrados para el docente.</span>
       </div>
 
+      {/* Nombre */}
       <Card title="📋 Nombre del equipo">
-        <input style={inp} placeholder="Ej: Los Circuitos, Equipo Alfa..." value={nombre} onChange={e=>setNombre(e.target.value)} />
+        <input style={inp} placeholder="Ej: Los Circuitos, Equipo Alfa, Grupo Omega..." value={nombre} onChange={e=>setNombre(e.target.value)} />
       </Card>
 
-      <Card title="🎓 Integrantes (sin dispositivo)">
-        <div style={{ marginBottom:12, fontSize:12, color:C.muted }}>
-          <strong style={{ color:C.accent }}>{user.name}</strong> (tú · con dispositivo) + {lista.length} integrante{lista.length!==1?"s":""}
-        </div>
-        {lista.map(n=>(
-          <div key={n} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", background:C.surface, borderRadius:8, marginBottom:6, border:`1px solid ${C.border}` }}>
-            <span style={{ fontSize:14 }}>🎓</span>
-            <span style={{ flex:1, fontSize:13 }}>{n}</span>
-            <button onClick={()=>quitar(n)} style={{ background:"none", border:"none", color:"#ff7777", cursor:"pointer", fontSize:15 }}>✕</button>
+      {/* Líder */}
+      <Card title="⭐ Líder del equipo (tú)">
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:`${C.accent}15`, borderRadius:10, border:`1px solid ${C.accent}44` }}>
+          <div style={{ width:36,height:36,borderRadius:"50%",background:`${C.accent}22`,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>⭐</div>
+          <div>
+            <div style={{ fontSize:13, fontWeight:700 }}>{user.name}</div>
+            <div style={{ fontSize:11, color:C.muted }}>Grado {user.grade} · Grupo {user.group} · con dispositivo</div>
           </div>
-        ))}
-        <div style={{ display:"flex", gap:8, marginTop:10 }}>
-          <input style={{ ...inp, flex:1 }} placeholder="Nombre del compañero sin dispositivo" value={integrante} onChange={e=>setIntegrante(e.target.value)} onKeyDown={e=>e.key==="Enter"&&agregar()} />
-          <button onClick={agregar} disabled={!integrante.trim()} style={{ padding:"10px 16px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:10, color:C.accent3, fontSize:13, cursor:"pointer", fontWeight:700 }}>+</button>
         </div>
+      </Card>
+
+      {/* Selección de compañeros */}
+      <Card title={`🎓 Compañeros de Grado ${user.grade} · Grupo ${user.group}`}>
+        {(!user.grade || !user.group) && (
+          <div style={{ color:"#f97316", fontSize:12 }}>⚠️ Tu perfil no tiene grado/grupo asignado. Cierra sesión y vuelve a ingresar seleccionando tu grado y grupo.</div>
+        )}
+        {user.grade && user.group && <>
+          <div style={{ marginBottom:10 }}>
+            <input style={{ ...inp, fontSize:12 }} placeholder="Buscar compañero por nombre o apellido..." value={buscar} onChange={e=>setBuscar(e.target.value)} />
+          </div>
+
+          {loadingC && <div style={{ color:C.muted, fontSize:12 }}>⏳ Cargando compañeros...</div>}
+
+          {!loadingC && filtrados.length === 0 && (
+            <div style={{ color:C.muted, fontSize:12 }}>
+              {buscar ? "Sin resultados para esa búsqueda." : "No hay más compañeros registrados en tu grado y grupo."}
+            </div>
+          )}
+
+          {!loadingC && filtrados.map(c => {
+            const sel = seleccionados.find(x => x.id === c.id);
+            return (
+              <div key={c.id} onClick={() => toggle(c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:sel?`${C.accent2}20`:C.surface, borderRadius:10, marginBottom:6, border:`1px solid ${sel?C.accent2:C.border}`, cursor:"pointer", transition:"all .15s" }}>
+                <div style={{ width:28,height:28,borderRadius:"50%",background:sel?C.accent2:`${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0,transition:"background .15s" }}>
+                  {sel ? "✓" : "🎓"}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:sel?700:400 }}>{c.nombres} {c.apellidos}</div>
+                  <div style={{ fontSize:10, color:C.muted }}>Grado {c.grado} · Grupo {c.grupo}</div>
+                </div>
+                {sel && <span style={{ fontSize:10, color:C.accent2, fontWeight:700 }}>✓ Seleccionado</span>}
+              </div>
+            );
+          })}
+
+          {seleccionados.length > 0 && (
+            <div style={{ marginTop:12, padding:"10px 14px", background:`${C.accent3}10`, borderRadius:10, border:`1px solid ${C.accent3}33` }}>
+              <div style={{ fontSize:11, color:C.accent3, fontWeight:700, marginBottom:6 }}>
+                👥 Equipo: {1 + seleccionados.length} integrante{seleccionados.length>0?"s":""}
+              </div>
+              <div style={{ fontSize:12 }}>⭐ {user.name} (líder) {seleccionados.map(s=>`· 🎓 ${s.nombres} ${s.apellidos}`).join(" ")}</div>
+            </div>
+          )}
+        </>}
       </Card>
 
       <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-        <Btn onClick={guardar} disabled={!nombre.trim()}>{saved?"✅ ¡Equipo listo! Iniciando chat...":"Activar equipo e ir al chat 🚀"}</Btn>
-        {equipo&&<button onClick={disolver} style={{ padding:"11px 18px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:10, color:"#ff7777", fontSize:13, cursor:"pointer" }}>Disolver equipo</button>}
+        <Btn onClick={guardar} disabled={!nombre.trim() || seleccionados.length === 0}>
+          {saved ? "✅ ¡Equipo listo! Iniciando chat..." : `Activar equipo (${1+seleccionados.length}) e ir al chat 🚀`}
+        </Btn>
+        {equipo && (
+          <button onClick={disolver} style={{ padding:"11px 18px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:10, color:"#ff7777", fontSize:13, cursor:"pointer" }}>
+            Disolver equipo
+          </button>
+        )}
       </div>
     </Page>
   );
