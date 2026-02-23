@@ -93,6 +93,37 @@ Siempre en español colombiano, cálido y motivador.`;
 
 const C = { bg:"#070d1a",surface:"#0d1526",card:"#111e33",border:"#1a3050",accent:"#00c8ff",accent2:"#8b5cf6",accent3:"#10d98a",text:"#e2e8f0",muted:"#4a6080",user:"#162040" };
 
+// ─── XP → Nota (1.0–5.0) ─────────────────────────────────────
+const xpToNota = (xp) => {
+  const bp = [{xp:0,n:1.0},{xp:25,n:2.0},{xp:75,n:3.0},{xp:150,n:4.0},{xp:250,n:5.0}];
+  if (xp <= 0) return "1.0";
+  if (xp >= 250) return "5.0";
+  for (let i = 0; i < bp.length - 1; i++) {
+    if (xp >= bp[i].xp && xp <= bp[i+1].xp) {
+      const t = (xp - bp[i].xp) / (bp[i+1].xp - bp[i].xp);
+      return (Math.round((bp[i].n + t*(bp[i+1].n - bp[i].n))*10)/10).toFixed(1);
+    }
+  }
+  return "5.0";
+};
+
+const notaColor = (nota) => {
+  const n = parseFloat(nota);
+  if (n >= 4.5) return "#10d98a";
+  if (n >= 4.0) return "#22c55e";
+  if (n >= 3.5) return "#eab308";
+  if (n >= 3.0) return "#f97316";
+  return "#ef4444";
+};
+
+// ─── Compañeros del mismo grado/grupo (para equipos) ─────────
+const getCompaneros = async (grado, grupo, exclude_id) => {
+  const params = new URLSearchParams({ grado, grupo, exclude_id: exclude_id||"" });
+  const res = await fetch(`/api/companeros?${params}`);
+  const data = await res.json();
+  return data.companeros || [];
+};
+
 // ═══════════════════════════════════════════════════════════════
 // APP
 // ═══════════════════════════════════════════════════════════════
