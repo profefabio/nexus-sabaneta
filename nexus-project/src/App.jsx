@@ -24,15 +24,30 @@ const callNexus = async (messages, system) => {
 
 const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
   try {
+    // Siempre guardar para el líder/estudiante individual
     await fetch("/api/saveprogress", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         estudiante_id: user.id,
-        nombre_estudiante: equipo ? `Equipo: ${equipo.nombre}` : user.name,
+        nombre_estudiante: user.name,
         grado: user.grade||"", grupo: user.group||"",
         xp_total: xp, nivel, mision_id: misionId||null,
       }),
     });
+    // Si hay equipo, guardar el mismo XP y nota para cada integrante
+    if (equipo?.integrantes?.length > 0) {
+      await Promise.all(equipo.integrantes.map(m =>
+        fetch("/api/saveprogress", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            estudiante_id: String(m.id),
+            nombre_estudiante: `${m.nombres} ${m.apellidos}`,
+            grado: user.grade||"", grupo: user.group||"",
+            xp_total: xp, nivel, mision_id: misionId||null,
+          }),
+        })
+      ));
+    }
   } catch(_) {}
 };
 
