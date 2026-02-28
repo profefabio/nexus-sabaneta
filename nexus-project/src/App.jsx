@@ -599,62 +599,262 @@ function TeacherView({ user, onLogout }) {
 // ADMIN USUARIOS
 // ═══════════════════════════════════════════════════════════════
 function AdminUsuarios() {
-  const [tab, setTab] = useState("docentes");
-  const [data, setData] = useState({ docentes:[], estudiantes:[] });
+  const [tab, setTab]       = useState("docentes");
+  const [data, setData]     = useState({ docentes:[], estudiantes:[] });
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [buscar, setBuscar] = useState("");
 
+  // ── Formulario crear docente ──
+  const [formDoc, setFormDoc] = useState({ nombres:"", apellidos:"", email:"", asignatura:"", password:"" });
+  const [savingDoc, setSavingDoc] = useState(false);
+  const [msgDoc, setMsgDoc] = useState(null);
+
+  // ── Formulario crear estudiante ──
+  const [formEst, setFormEst] = useState({ nombres:"", apellidos:"", grado:"6", grupo:"1", docente_id:"" });
+  const [savingEst, setSavingEst] = useState(false);
+  const [msgEst, setMsgEst] = useState(null);
+
+  // ── Formulario asignar docente → grados/grupos ──
+  const [asigDoc,   setAsigDoc]   = useState("");
+  const [asigGrados, setAsigGrados] = useState([]);
+  const [asigGrupos, setAsigGrupos] = useState([]);
+  const [savingAsig, setSavingAsig] = useState(false);
+  const [msgAsig,  setMsgAsig]   = useState(null);
+
   const cargar = () => {
     setLoading(true); setApiError(null);
-    fetch("/api/usuarios").then(r=>r.json()).then(d=>{ setData({docentes:d.docentes||[],estudiantes:d.estudiantes||[]}); setLoading(false); }).catch(err=>{ setApiError(err.message); setLoading(false); });
+    fetch("/api/usuarios").then(r=>r.json())
+      .then(d=>{ setData({ docentes:d.docentes||[], estudiantes:d.estudiantes||[] }); setLoading(false); })
+      .catch(err=>{ setApiError(err.message); setLoading(false); });
   };
   useEffect(()=>cargar(),[]);
 
   const eliminar = async (id, tipo, nombre) => {
     if(!confirm(`¿Eliminar a ${nombre}?`)) return;
     setDeleting(id);
-    try { const r=await fetch(`/api/usuarios?id=${id}&tipo=${tipo}`,{method:"DELETE"}); const d=await r.json(); if(d.success) cargar(); else alert("Error: "+d.error); } catch(e){ alert("Error: "+e.message); }
+    try {
+      const r=await fetch(`/api/usuarios?id=${id}&tipo=${tipo}`,{method:"DELETE"});
+      const d=await r.json();
+      if(d.success) cargar(); else alert("Error: "+d.error);
+    } catch(e){ alert("Error: "+e.message); }
     setDeleting(null);
   };
 
-  const lista = tab==="docentes" ? (data.docentes||[]) : (data.estudiantes||[]);
+  const crearDocente = async () => {
+    if(!formDoc.nombres||!formDoc.apellidos||!formDoc.email||!formDoc.password) return;
+    setSavingDoc(true); setMsgDoc(null);
+    try {
+      const r=await fetch("/api/usuarios",{ method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ accion:"crear_docente", ...formDoc }) });
+      const d=await r.json();
+      if(d.success){ setMsgDoc({ok:true,txt:`✅ Docente ${d.docente.nombres} creado`}); setFormDoc({nombres:"",apellidos:"",email:"",asignatura:"",password:""}); cargar(); }
+      else setMsgDoc({ok:false,txt:"❌ "+d.error});
+    } catch(e){ setMsgDoc({ok:false,txt:"❌ "+e.message}); }
+    setSavingDoc(false);
+  };
+
+  const crearEstudiante = async () => {
+    if(!formEst.nombres||!formEst.apellidos||!formEst.grado||!formEst.grupo) return;
+    setSavingEst(true); setMsgEst(null);
+    try {
+      const r=await fetch("/api/usuarios",{ method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ accion:"crear_estudiante", ...formEst }) });
+      const d=await r.json();
+      if(d.success){ setMsgEst({ok:true,txt:`✅ Estudiante ${d.estudiante.nombres} creado`}); setFormEst({nombres:"",apellidos:"",grado:"6",grupo:"1",docente_id:""}); cargar(); }
+      else setMsgEst({ok:false,txt:"❌ "+d.error});
+    } catch(e){ setMsgEst({ok:false,txt:"❌ "+e.message}); }
+    setSavingEst(false);
+  };
+
+  const asignarDocente = async () => {
+    if(!asigDoc||asigGrados.length===0) return;
+    setSavingAsig(true); setMsgAsig(null);
+    try {
+      const r=await fetch("/api/usuarios",{ method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ accion:"asignar_docente", docente_id:asigDoc, grados:asigGrados, grupos:asigGrupos.length>0?asigGrupos:null }) });
+      const d=await r.json();
+      if(d.success){ setMsgAsig({ok:true,txt:`✅ Estudiantes de grado(s) ${asigGrados.join(", ")} asignados`}); cargar(); }
+      else setMsgAsig({ok:false,txt:"❌ "+d.error});
+    } catch(e){ setMsgAsig({ok:false,txt:"❌ "+e.message}); }
+    setSavingAsig(false);
+  };
+
+  const toggleArr = (arr, setArr, val) =>
+    setArr(prev => prev.includes(val) ? prev.filter(x=>x!==val) : [...prev, val]);
+
+  const lista    = tab==="docentes" ? (data.docentes||[]) : (data.estudiantes||[]);
   const filtrada = lista.filter(u => {
-    const n=`${u.nombres||""} ${u.apellidos||""}`.toLowerCase();
+    const n=`${u.nombres||""} ${u.apellidos||}`.toLowerCase();
     return n.includes(buscar.toLowerCase())||(u.email||"").toLowerCase().includes(buscar.toLowerCase())||(u.asignatura||"").toLowerCase().includes(buscar.toLowerCase())||(u.grado||"").includes(buscar);
   });
 
+  const chipBtn = (val, arr, setArr, color=C.accent2) => (
+    <button key={val} onClick={()=>toggleArr(arr,setArr,val)}
+      style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${arr.includes(val)?color:C.border}`,
+        background:arr.includes(val)?color+"33":"transparent", color:arr.includes(val)?color:C.muted,
+        fontSize:11, cursor:"pointer", fontFamily:"inherit", fontWeight:arr.includes(val)?700:400 }}>
+      {val}
+    </button>
+  );
+
   return (
     <Page title="👥 Gestión de Usuarios">
+      {/* ── Tabs ── */}
       <div style={{ display:"flex", background:C.surface, borderRadius:12, padding:4, marginBottom:18, border:`1px solid ${C.border}`, width:"fit-content", gap:4 }}>
-        {[["docentes","📚","Docentes",data.docentes?.length],["estudiantes","🎓","Estudiantes",data.estudiantes?.length]].map(([t,ic,lb,cnt])=>(
-          <button key={t} onClick={()=>{setTab(t);setBuscar("");}} style={{ padding:"8px 18px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:12, background:tab===t?`linear-gradient(135deg,${C.accent},${C.accent2})`:"transparent", color:tab===t?"#fff":C.muted }}>
-            {ic} {lb} <span style={{ fontSize:11, opacity:0.8 }}>({cnt??0})</span>
+        {[["docentes","📚","Docentes",data.docentes?.length],["estudiantes","🎓","Estudiantes",data.estudiantes?.length],["nuevo","➕","Registrar",null],["asignar","🔗","Asignar",null]].map(([t,ic,lb,cnt])=>(
+          <button key={t} onClick={()=>{setTab(t);setBuscar("");}} style={{ padding:"8px 14px", borderRadius:8, border:"none", cursor:"pointer", fontFamily:"inherit", fontWeight:700, fontSize:12, background:tab===t?`linear-gradient(135deg,${C.accent},${C.accent2})`:"transparent", color:tab===t?"#fff":C.muted }}>
+            {ic} {lb} {cnt!=null&&<span style={{ fontSize:11, opacity:0.8 }}>({cnt??0})</span>}
           </button>
         ))}
       </div>
-      <div style={{ marginBottom:12 }}><input style={{ ...inp, maxWidth:320 }} placeholder="Buscar..." value={buscar} onChange={e=>setBuscar(e.target.value)} /></div>
-      {loading&&<div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando...</div>}
-      {apiError&&<div style={{ background:"#ff444422", border:"1px solid #ff444444", color:"#ff7777", padding:"10px 14px", borderRadius:8, fontSize:13, marginBottom:12 }}>⚠️ {apiError}</div>}
-      {!loading&&(
-        <Card title={`${tab==="docentes"?"📚 Docentes":"🎓 Estudiantes"} — ${filtrada.length} resultado${filtrada.length!==1?"s":""}`}>
-          {filtrada.length===0&&<div style={{ color:C.muted, fontSize:12 }}>Sin resultados.</div>}
-          {filtrada.map(u=>(
-            <div key={u.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:C.surface, borderRadius:10, marginBottom:7, border:`1px solid ${C.border}` }}>
-              <div style={{ width:36,height:36,borderRadius:"50%",background:tab==="docentes"?`${C.accent2}22`:`${C.accent3}22`,border:`1.5px solid ${tab==="docentes"?C.accent2:C.accent3}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>{tab==="docentes"?"📚":"🎓"}</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:12, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.nombres||"—"} {u.apellidos||""}</div>
-                <div style={{ fontSize:10, color:C.muted }}>{tab==="docentes"?(u.email||"Sin email")+(u.asignatura?` · ${u.asignatura}`:""):`Grado ${u.grado||"—"} · Grupo ${u.grupo||"—"}`}</div>
-              </div>
-              <div style={{ fontSize:10, color:C.muted, flexShrink:0 }}>{u.fecha_registro?new Date(u.fecha_registro).toLocaleDateString("es-CO"):"—"}</div>
-              <button onClick={()=>eliminar(u.id,tab==="docentes"?"docente":"estudiante",`${u.nombres} ${u.apellidos}`)} disabled={deleting===u.id} style={{ padding:"5px 12px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:11, cursor:"pointer", flexShrink:0 }}>
-                {deleting===u.id?"...":"🗑️"}
-              </button>
-            </div>
-          ))}
+
+      {/* ── Lista docentes / estudiantes ── */}
+      {(tab==="docentes"||tab==="estudiantes")&&<>
+        <div style={{ marginBottom:12 }}>
+          <input style={{ ...inp, maxWidth:320 }} placeholder="Buscar..." value={buscar} onChange={e=>setBuscar(e.target.value)} />
+        </div>
+        {loading&&<div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando...</div>}
+        {apiError&&<div style={{ background:"#ff444422", border:"1px solid #ff444444", color:"#ff7777", padding:"10px 14px", borderRadius:8, fontSize:13, marginBottom:12 }}>⚠️ {apiError}</div>}
+        {!loading&&(
+          <Card title={`${tab==="docentes"?"📚 Docentes":"🎓 Estudiantes"} — ${filtrada.length} resultado${filtrada.length!==1?"s":""}`}>
+            {filtrada.length===0&&<div style={{ color:C.muted, fontSize:12 }}>Sin resultados.</div>}
+            {filtrada.map(u=>{
+              const docAsig = tab==="estudiantes" ? data.docentes.find(d=>String(d.id)===String(u.docente_id)) : null;
+              return (
+                <div key={u.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:C.surface, borderRadius:10, marginBottom:7, border:`1px solid ${C.border}` }}>
+                  <div style={{ width:36,height:36,borderRadius:"50%",background:tab==="docentes"?`${C.accent2}22`:`${C.accent3}22`,border:`1.5px solid ${tab==="docentes"?C.accent2:C.accent3}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>{tab==="docentes"?"📚":"🎓"}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{u.nombres||"—"} {u.apellidos||""}</div>
+                    <div style={{ fontSize:10, color:C.muted }}>
+                      {tab==="docentes"
+                        ?(u.email||"Sin email")+(u.asignatura?` · ${u.asignatura}`:"")
+                        :`G${u.grado||"—"}·Grp${u.grupo||"—"} · ${docAsig?docAsig.nombres+" "+docAsig.apellidos:"⚠️ Sin docente"}`}
+                    </div>
+                  </div>
+                  <div style={{ fontSize:10, color:C.muted, flexShrink:0 }}>{u.fecha_registro?new Date(u.fecha_registro).toLocaleDateString("es-CO"):"—"}</div>
+                  <button onClick={()=>eliminar(u.id,tab==="docentes"?"docente":"estudiante",`${u.nombres} ${u.apellidos}`)} disabled={deleting===u.id}
+                    style={{ padding:"5px 12px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:11, cursor:"pointer", flexShrink:0 }}>
+                    {deleting===u.id?"...":"🗑️"}
+                  </button>
+                </div>
+              );
+            })}
+          </Card>
+        )}
+      </>}
+
+      {/* ── Registrar nuevo usuario ── */}
+      {tab==="nuevo"&&<>
+        <Card title="📚 Registrar Docente Nuevo">
+          <div style={grid2}>
+            <div><div style={lbl}>Nombres</div><input style={inp} value={formDoc.nombres} onChange={e=>setFormDoc(p=>({...p,nombres:e.target.value}))} placeholder="Ej: María Camila" /></div>
+            <div><div style={lbl}>Apellidos</div><input style={inp} value={formDoc.apellidos} onChange={e=>setFormDoc(p=>({...p,apellidos:e.target.value}))} placeholder="Ej: González Ruiz" /></div>
+          </div>
+          <div style={grid2}>
+            <div><div style={lbl}>Correo institucional</div><input style={inp} value={formDoc.email} onChange={e=>setFormDoc(p=>({...p,email:e.target.value}))} placeholder="correo@sabaneta.edu.co" /></div>
+            <div><div style={lbl}>Asignatura</div><input style={inp} value={formDoc.asignatura} onChange={e=>setFormDoc(p=>({...p,asignatura:e.target.value}))} placeholder="Ej: Matemáticas" /></div>
+          </div>
+          <div style={{ marginBottom:12 }}><div style={lbl}>Contraseña inicial</div><input type="password" style={inp} value={formDoc.password} onChange={e=>setFormDoc(p=>({...p,password:e.target.value}))} placeholder="El docente la puede cambiar después" /></div>
+          {msgDoc&&<div style={{ padding:"8px 12px", borderRadius:8, background:msgDoc.ok?"#10d98a22":"#ff444422", border:`1px solid ${msgDoc.ok?"#10d98a44":"#ff444444"}`, color:msgDoc.ok?"#10d98a":"#ff7777", fontSize:12, marginBottom:10 }}>{msgDoc.txt}</div>}
+          <Btn onClick={crearDocente} disabled={savingDoc||!formDoc.nombres||!formDoc.apellidos||!formDoc.email||!formDoc.password}>{savingDoc?"Guardando...":"Crear Docente 📚"}</Btn>
+          <div style={{ fontSize:11, color:C.muted, marginTop:8 }}>💡 Después de crear el docente, ve a la pestaña <strong style={{color:C.accent}}>Asignar</strong> para vincularle sus estudiantes.</div>
         </Card>
-      )}
+
+        <Card title="🎓 Registrar Estudiante Nuevo">
+          <div style={grid2}>
+            <div><div style={lbl}>Nombres</div><input style={inp} value={formEst.nombres} onChange={e=>setFormEst(p=>({...p,nombres:e.target.value}))} placeholder="Ej: Juan David" /></div>
+            <div><div style={lbl}>Apellidos</div><input style={inp} value={formEst.apellidos} onChange={e=>setFormEst(p=>({...p,apellidos:e.target.value}))} placeholder="Ej: Restrepo López" /></div>
+          </div>
+          <div style={grid2}>
+            <div><div style={lbl}>Grado</div>
+              <select style={inp} value={formEst.grado} onChange={e=>setFormEst(p=>({...p,grado:e.target.value}))}>
+                {["6","7","8","9","10","11"].map(g=><option key={g} value={g}>Grado {g}</option>)}
+              </select>
+            </div>
+            <div><div style={lbl}>Grupo</div>
+              <select style={inp} value={formEst.grupo} onChange={e=>setFormEst(p=>({...p,grupo:e.target.value}))}>
+                {["1","2","3","4"].map(g=><option key={g} value={g}>Grupo {g}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom:12 }}><div style={lbl}>Docente asignado</div>
+            <select style={inp} value={formEst.docente_id} onChange={e=>setFormEst(p=>({...p,docente_id:e.target.value}))}>
+              <option value="">— Seleccionar docente —</option>
+              {data.docentes.map(d=><option key={d.id} value={d.id}>{d.nombres} {d.apellidos} · {d.asignatura||"Sin asignatura"}</option>)}
+            </select>
+          </div>
+          {msgEst&&<div style={{ padding:"8px 12px", borderRadius:8, background:msgEst.ok?"#10d98a22":"#ff444422", border:`1px solid ${msgEst.ok?"#10d98a44":"#ff444444"}`, color:msgEst.ok?"#10d98a":"#ff7777", fontSize:12, marginBottom:10 }}>{msgEst.txt}</div>}
+          <Btn onClick={crearEstudiante} disabled={savingEst||!formEst.nombres||!formEst.apellidos}>{savingEst?"Guardando...":"Crear Estudiante 🎓"}</Btn>
+        </Card>
+      </>}
+
+      {/* ── Asignar docente a estudiantes existentes ── */}
+      {tab==="asignar"&&<>
+        <Card title="🔗 Asignar Docente a Estudiantes Existentes">
+          <div style={{ fontSize:12, color:C.muted, marginBottom:16, lineHeight:1.7, background:`${C.accent2}10`, border:`1px solid ${C.accent2}22`, borderRadius:10, padding:"10px 14px" }}>
+            Usa esto cuando registres un docente nuevo o cuando necesites reasignar grados.<br/>
+            Selecciona el docente, los grados y opcionalmente los grupos. Se actualizarán todos esos estudiantes.
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <div style={lbl}>Docente</div>
+            <select style={inp} value={asigDoc} onChange={e=>setAsigDoc(e.target.value)}>
+              <option value="">— Seleccionar docente —</option>
+              {data.docentes.map(d=><option key={d.id} value={d.id}>{d.nombres} {d.apellidos} · {d.asignatura||"Sin asignatura"}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <div style={lbl}>Grados (selecciona uno o más)</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {["6","7","8","9","10","11"].map(g=>chipBtn(g,asigGrados,setAsigGrados,C.accent))}
+            </div>
+          </div>
+          <div style={{ marginBottom:16 }}>
+            <div style={lbl}>Grupos (opcional — vacío = todos los grupos)</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {["1","2","3","4"].map(g=>chipBtn(g,asigGrupos,setAsigGrupos,C.accent3))}
+            </div>
+            {asigGrupos.length===0&&<div style={{ fontSize:10, color:C.muted, marginTop:4 }}>Sin filtro de grupo — se asignarán todos los grupos de los grados seleccionados</div>}
+          </div>
+          {msgAsig&&<div style={{ padding:"8px 12px", borderRadius:8, background:msgAsig.ok?"#10d98a22":"#ff444422", border:`1px solid ${msgAsig.ok?"#10d98a44":"#ff444444"}`, color:msgAsig.ok?"#10d98a":"#ff7777", fontSize:12, marginBottom:10 }}>{msgAsig.txt}</div>}
+          <Btn onClick={asignarDocente} disabled={savingAsig||!asigDoc||asigGrados.length===0}>{savingAsig?"Asignando...":"Asignar estudiantes 🔗"}</Btn>
+        </Card>
+
+        <Card title="📊 Estado actual de asignaciones">
+          {loading?<div style={{ color:C.muted, fontSize:12 }}>⏳ Cargando...</div>:<>
+            {data.docentes.map(d=>{
+              const suyos = (data.estudiantes||[]).filter(e=>String(e.docente_id)===String(d.id));
+              const porGrado = {};
+              suyos.forEach(e=>{ porGrado[e.grado]=(porGrado[e.grado]||0)+1; });
+              return (
+                <div key={d.id} style={{ padding:"10px 12px", background:C.surface, borderRadius:10, marginBottom:8, border:`1px solid ${C.border}` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                    <span>📚</span>
+                    <div style={{ fontWeight:700, fontSize:12 }}>{d.nombres} {d.apellidos}</div>
+                    <div style={{ fontSize:10, color:C.muted }}>· {d.asignatura||"Sin asignatura"}</div>
+                    <div style={{ marginLeft:"auto", fontSize:11, color:C.accent3, fontWeight:700 }}>{suyos.length} estudiantes</div>
+                  </div>
+                  {suyos.length>0
+                    ? <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+                        {Object.entries(porGrado).sort().map(([g,cnt])=>(
+                          <span key={g} style={{ padding:"2px 8px", borderRadius:5, fontSize:10, background:`${C.accent}22`, color:C.accent }}>Grado {g}: {cnt}</span>
+                        ))}
+                      </div>
+                    : <div style={{ fontSize:11, color:"#f97316" }}>⚠️ Sin estudiantes asignados</div>
+                  }
+                </div>
+              );
+            })}
+            {(data.estudiantes||[]).filter(e=>!e.docente_id).length>0&&(
+              <div style={{ padding:"10px 12px", background:"#f9731611", border:"1px solid #f9731633", borderRadius:10, marginTop:8 }}>
+                <div style={{ fontSize:12, color:"#f97316", fontWeight:700 }}>⚠️ Estudiantes sin docente asignado: {(data.estudiantes||[]).filter(e=>!e.docente_id).length}</div>
+                <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>Estos estudiantes ven TODAS las misiones. Asígnalos a un docente.</div>
+              </div>
+            )}
+          </>}
+        </Card>
+      </>}
     </Page>
   );
 }
