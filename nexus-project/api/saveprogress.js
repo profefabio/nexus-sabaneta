@@ -2,7 +2,7 @@
 const { createClient } = require("@supabase/supabase-js");
 
 // ─── Fórmula XP → Nota (1.0 – 5.0) ──────────────────────────
-// Escala progresiva:
+// Escala progresiva original:
 //   0  XP = 1.0  (apenas comienza)
 //   25 XP = 2.0
 //   75 XP = 3.0
@@ -19,14 +19,13 @@ function xpToNota(xp) {
   if (xp <= 0)  return 1.0;
   if (xp >= 250) return 5.0;
 
-  // Interpolación lineal entre tramos
   for (let i = 0; i < breakpoints.length - 1; i++) {
     const a = breakpoints[i];
     const b = breakpoints[i + 1];
     if (xp >= a.xp && xp <= b.xp) {
       const t = (xp - a.xp) / (b.xp - a.xp);
       const nota = a.nota + t * (b.nota - a.nota);
-      return Math.round(nota * 10) / 10; // 1 decimal
+      return Math.round(nota * 10) / 10;
     }
   }
   return 5.0;
