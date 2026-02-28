@@ -66,11 +66,23 @@ module.exports = async function handler(req, res) {
     if (!nombre || !apellido || !grado || !grupo)
       return res.status(400).json({ error: "Completa todos los campos" });
 
-    const { data: estudiantes, error } = await supabase
+    // Intentar leer docente_id; si la columna no existe aún en Supabase,
+    // el login funciona igual y docente_id quedará null (ver migracion_supabase.sql)
+    let { data: estudiantes, error } = await supabase
       .from("estudiantes")
       .select("id, nombres, apellidos, grado, grupo, docente_id")
       .eq("grado", grado)
       .eq("grupo", grupo);
+
+    if (error && (error.code === "42703" || (error.message || "").includes("docente_id"))) {
+      const fallback = await supabase
+        .from("estudiantes")
+        .select("id, nombres, apellidos, grado, grupo")
+        .eq("grado", grado)
+        .eq("grupo", grupo);
+      estudiantes = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) return res.status(500).json({ error: "Error BD: " + error.message });
     if (!estudiantes || estudiantes.length === 0)
