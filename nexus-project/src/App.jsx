@@ -51,11 +51,19 @@ const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
   } catch(_) {}
 };
 
-// ─── Fórmula XP → Nota (lineal por % de desarrollo) ────────────
-const XP_MAXIMO = 300; // 100% desarrollo = nota 5.0 · ajusta según el período
+// ─── Fórmula XP → Nota (escala progresiva original) ─────────────
+//   0  XP = 1.0 · 25 XP = 2.0 · 75 XP = 3.0 · 150 XP = 4.0 · 250 XP = 5.0
 const xpToNota = (xp) => {
+  const bp = [{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}];
   if (!xp || xp <= 0) return 1.0;
-  return Math.round((1.0 + Math.min(xp / XP_MAXIMO, 1.0) * 4.0) * 10) / 10;
+  if (xp >= 250) return 5.0;
+  for (let i = 0; i < bp.length - 1; i++) {
+    if (xp >= bp[i].x && xp <= bp[i+1].x) {
+      const t = (xp - bp[i].x) / (bp[i+1].x - bp[i].x);
+      return Math.round((bp[i].n + t * (bp[i+1].n - bp[i].n)) * 10) / 10;
+    }
+  }
+  return 5.0;
 };
 const notaColor = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
 
@@ -657,7 +665,7 @@ function StudentProgressCard({ user }) {
 
   const xp = datos.xp_total || 0;
   const nota = xpToNota(xp);
-  const pct = Math.round(Math.min(xp / XP_MAXIMO, 1) * 100);
+  const pct = Math.round(Math.min(xp / 250, 1) * 100);
 
   return (
     <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:20, marginTop:14 }}>
@@ -679,13 +687,13 @@ function StudentProgressCard({ user }) {
           <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${notaColor(nota)},${C.accent2})`, borderRadius:5, transition:"width 1s ease" }} />
         </div>
         <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, color:C.muted, marginTop:3 }}>
-          <span>0 XP</span><span>150 XP</span><span>300 XP</span>
+          <span>0 XP</span><span>125 XP</span><span>250 XP</span>
         </div>
       </div>
 
       {/* Detalles */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-        {[["⭐","XP Acumulado",xp,"#f97316"],["🏆","Nivel",datos.nivel||1,C.accent],["📈","% Completado",`${pct}%`,C.accent2],["🎓","Nota",nota.toFixed(1),notaColor(nota)]].map(([ic,lb,val,col])=>(
+        {[["⭐","XP Acumulado",xp,"#f97316"],["🏆","Nivel",datos.nivel||1,C.accent],["📈","Avance",`${pct}%`,C.accent2],["🎓","Nota",nota.toFixed(1),notaColor(nota)]].map(([ic,lb,val,col])=>(
           <div key={lb} style={{ background:C.surface, borderRadius:10, padding:"10px 12px", border:`1px solid ${col}33`, textAlign:"center" }}>
             <div style={{ fontSize:20, marginBottom:4 }}>{ic}</div>
             <div style={{ fontSize:16, fontWeight:900, fontFamily:"'Orbitron',monospace", color:col }}>{val}</div>
@@ -697,7 +705,7 @@ function StudentProgressCard({ user }) {
       <div style={{ marginTop:12, padding:"10px 14px", background:`${C.accent2}10`, borderRadius:10, border:`1px solid ${C.accent2}22`, fontSize:11, color:C.muted, lineHeight:1.7 }}>
         💡 Cada interacción con NEXUS suma <strong style={{color:C.accent3}}>+5 XP</strong>.
         Respuestas correctas suman <strong style={{color:C.accent3}}>+20 XP</strong>.
-        Con <strong style={{color:C.accent}}>300 XP</strong> alcanzas nota <strong style={{color:"#10d98a"}}>5.0</strong>.
+        Con <strong style={{color:C.accent}}>250 XP</strong> alcanzas nota <strong style={{color:"#10d98a"}}>5.0</strong>.
       </div>
     </div>
   );
