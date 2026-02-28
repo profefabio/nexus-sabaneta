@@ -710,7 +710,7 @@ function AdminUsuarios() {
 
   const lista    = tab==="docentes" ? (data.docentes||[]) : (data.estudiantes||[]);
   const filtrada = lista.filter(u => {
-    const n=`${u.nombres||""} ${u.apellidos||}`.toLowerCase();
+    const n=`${u.nombres||""} ${u.apellidos||""}`.toLowerCase();
     return n.includes(buscar.toLowerCase())||(u.email||"").toLowerCase().includes(buscar.toLowerCase())||(u.asignatura||"").toLowerCase().includes(buscar.toLowerCase())||(u.grado||"").includes(buscar);
   });
 
