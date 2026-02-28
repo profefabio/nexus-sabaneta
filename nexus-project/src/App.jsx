@@ -90,10 +90,68 @@ const deleteMision = async (id, docente_id, role) => {
 const downloadExcel = (rows, filename="reporte_nexus") => {
   if (!rows?.length) return;
   const headers = Object.keys(rows[0]);
-  const csv = [headers.join(","), ...rows.map(r=>headers.map(h=>`"${String(r[h]??"").replace(/"/g,'""')}"`).join(","))].join("\n");
+  // Usar tabulador como separador para que Excel respete los decimales
+  const csv = [headers.join("\t"), ...rows.map(r=>
+    headers.map(h => {
+      const v = r[h] ?? "";
+      // Números decimales: forzar formato con coma decimal para Excel en español
+      if (typeof v === "number") return String(v).replace(".", ",");
+      return String(v);
+    }).join("\t")
+  )].join("\n");
   const blob = new Blob(["\uFEFF"+csv], { type:"text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href=url; a.download=filename+".csv"; a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ─── Excel por misiones (columna por misión + nota definitiva) ──
+const downloadExcelMisiones = (topEstudiantes, misiones, filename="notas_por_mision") => {
+  if (!topEstudiantes?.length || !misiones?.length) return;
+
+  // Ordenar por apellido
+  const sorted = [...topEstudiantes].sort((a, b) => {
+    const apA = (a.nombre_estudiante||"").split(" ").slice(1).join(" ") || a.nombre_estudiante || "";
+    const apB = (b.nombre_estudiante||"").split(" ").slice(1).join(" ") || b.nombre_estudiante || "";
+    return apA.localeCompare(apB, "es");
+  });
+
+  // Encabezados: info fija + una columna por misión + Nota Definitiva
+  const headers = ["#", "Apellidos", "Nombres", "Grado", "Grupo",
+    ...misiones.map(m => m.title),
+    "Nota Definitiva"
+  ];
+
+  const rows = sorted.map((est, i) => {
+    const partes = (est.nombre_estudiante || "").split(" ");
+    const nombres   = partes[0] || "";
+    const apellidos = partes.slice(1).join(" ") || "";
+    const row = {
+      "#": i + 1,
+      "Apellidos": apellidos || est.nombre_estudiante,
+      "Nombres":   nombres,
+      "Grado":     est.grado || "—",
+      "Grupo":     est.grupo || "—",
+    };
+    // Nota por cada misión (decimal con coma para Excel en español)
+    misiones.forEach(m => {
+      const mData = est.misiones?.[m.id];
+      row[m.title] = mData ? String(mData.nota.toFixed(1)).replace(".", ",") : "—";
+    });
+    row["Nota Definitiva"] = String((est.nota_definitiva || 1.0).toFixed(1)).replace(".", ",");
+    return row;
+  });
+
+  // Construir TSV
+  const tsv = [
+    headers.join("\t"),
+    ...rows.map(r => headers.map(h => r[h] ?? "—").join("\t"))
+  ].join("\n");
+
+  const blob = new Blob(["\uFEFF" + tsv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename + ".csv"; a.click();
   URL.revokeObjectURL(url);
 };
 
@@ -289,29 +347,12 @@ function DashboardPanel({ user, misiones }) {
           <button onClick={()=>setOrdenAZ(!ordenAZ)} style={{ padding:"6px 10px", background:ordenAZ?`${C.accent2}33`:C.surface, border:`1px solid ${ordenAZ?C.accent2:C.border}`, borderRadius:8, color:ordenAZ?C.accent2:C.muted, fontSize:11, cursor:"pointer" }}>
             {ordenAZ?"🔤 A→Z":"🏆 XP"}
           </button>
-          <button onClick={()=>{
-            const sorted=[...top].sort((a,b)=>{
-              const apA=(a.nombre_estudiante||"").split(" ").slice(1).join(" ")||a.nombre_estudiante||"";
-              const apB=(b.nombre_estudiante||"").split(" ").slice(1).join(" ")||b.nombre_estudiante||"";
-              return apA.localeCompare(apB,"es");
-            });
-            downloadExcel(sorted.map((e,i)=>{
-              const partes=(e.nombre_estudiante||"").split(" ");
-              const nombres=partes[0]||"";
-              const apellidos=partes.slice(1).join(" ")||"";
-              return {
-                "#":i+1,
-                Apellidos:apellidos||e.nombre_estudiante,
-                Nombres:nombres,
-                Grado:e.grado,
-                Grupo:e.grupo||"—",
-                "XP":e.xp_total,
-                "Nota": xpToNota(e.xp_total).toFixed(1),
-                Nivel:e.nivel||1
-              };
-            }),"nexus_top_por_apellido");
-          }} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>
-            ⬇️ Excel
+          <button onClick={()=>downloadExcelMisiones(
+              stats?.topEstudiantes||[],
+              stats?.misiones||[],
+              "notas_por_mision"
+            )} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>
+            ⬇️ Excel por Misiones
           </button>
         </div>
         {top.length>0 ? top.slice(0,15).map((e,i)=>(
@@ -320,7 +361,7 @@ function DashboardPanel({ user, misiones }) {
             <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·{e.grupo||"—"}</div></div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
               <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
-              {(()=>{ const _n=xpToNota(e.xp_total); return <div style={{fontSize:11,fontWeight:800,color:notaColor(_n)}}>{_n.toFixed(1)}</div>; })()}
+              {(()=>{ const _n=e.nota_definitiva||xpToNota(e.xp_total); return <div style={{fontSize:11,fontWeight:800,color:notaColor(_n)}}>{_n.toFixed(1)}</div>; })()}
             </div>
           </div>
         )) : <div style={{ color:C.muted, fontSize:12 }}>Sin actividad registrada.</div>}
@@ -408,28 +449,11 @@ function ProgresoPanel({ user }) {
               <option value="todos">Todos los grupos</option>{["1","2","3","4"].map(g=><option key={g} value={g}>Grupo {g}</option>)}
             </select>
             <button onClick={()=>setOrdenAZ(!ordenAZ)} style={{ padding:"6px 10px", background:ordenAZ?`${C.accent2}33`:C.surface, border:`1px solid ${ordenAZ?C.accent2:C.border}`, borderRadius:8, color:ordenAZ?C.accent2:C.muted, fontSize:11, cursor:"pointer" }}>{ordenAZ?"🔤 A→Z":"🏆 XP"}</button>
-            <button onClick={()=>{
-              const sorted=[...estudiantes].sort((a,b)=>{
-                const apA=(a.nombre_estudiante||"").split(" ").slice(1).join(" ")||a.nombre_estudiante||"";
-                const apB=(b.nombre_estudiante||"").split(" ").slice(1).join(" ")||b.nombre_estudiante||"";
-                return apA.localeCompare(apB,"es");
-              });
-              downloadExcel(sorted.map((e,i)=>{
-                const partes=(e.nombre_estudiante||"").split(" ");
-                const nombres=partes[0]||"";
-                const apellidos=partes.slice(1).join(" ")||"";
-                return {
-                  "#":i+1,
-                  Apellidos:apellidos||e.nombre_estudiante,
-                  Nombres:nombres,
-                  Grado:e.grado,
-                  Grupo:e.grupo||"—",
-                  "XP":e.xp_total,
-                  "Nota": xpToNota(e.xp_total).toFixed(1),
-                  Nivel:e.nivel||1
-                };
-              }),"progreso_por_apellido");
-            }} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>⬇️ Excel</button>
+            <button onClick={()=>downloadExcelMisiones(
+                stats?.topEstudiantes||[],
+                stats?.misiones||[],
+                `notas_${user.subject||user.name||"docente"}_por_mision`.replace(/\s+/g,"_")
+              )} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>⬇️ Excel por Misiones</button>
           </div>
           {estudiantes.length>0?estudiantes.map((e,i)=>(
             <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:C.surface, borderRadius:10, marginBottom:5, border:`1px solid ${C.border}` }}>
@@ -437,7 +461,7 @@ function ProgresoPanel({ user }) {
               <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·Grp{e.grupo||"—"}·Nv{e.nivel||1}</div></div>
               <div style={{ textAlign:"right", flexShrink:0 }}>
                 <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
-                {(()=>{ const _n=xpToNota(e.xp_total); return <div style={{fontSize:12,fontWeight:800,color:notaColor(_n)}}>{_n.toFixed(1)}</div>; })()}
+                {(()=>{ const _n = e.nota_definitiva || xpToNota(e.xp_total); return <div style={{fontSize:12,fontWeight:800,color:notaColor(_n)}}>{_n.toFixed(1)}</div>; })()}
               </div>
             </div>
           )):<div style={{ color:C.muted, fontSize:12 }}>Sin estudiantes con este filtro.</div>}
