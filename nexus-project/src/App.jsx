@@ -51,6 +51,14 @@ const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
   } catch(_) {}
 };
 
+// ─── Fórmula XP → Nota (lineal por % de desarrollo) ────────────
+const XP_MAXIMO = 300; // 100% desarrollo = nota 5.0 · ajusta según el período
+const xpToNota = (xp) => {
+  if (!xp || xp <= 0) return 1.0;
+  return Math.round((1.0 + Math.min(xp / XP_MAXIMO, 1.0) * 4.0) * 10) / 10;
+};
+const notaColor = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
+
 // ─── Misiones API ─────────────────────────────────────────────
 const getMisiones = async (docente_id, role) => {
   const params = new URLSearchParams({ docente_id: docente_id||"", role: role||"teacher" });
@@ -274,7 +282,7 @@ function DashboardPanel({ user, misiones }) {
                 Grado:e.grado,
                 Grupo:e.grupo||"—",
                 "XP":e.xp_total,
-                "Nota":((xp)=>{ const bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; if(!xp||xp<=0)return'1.0'; if(xp>=250)return'5.0'; for(let i=0;i<bp.length-1;i++){if(xp>=bp[i].x&&xp<=bp[i+1].x){const t=(xp-bp[i].x)/(bp[i+1].x-bp[i].x);return(Math.round((bp[i].n+t*(bp[i+1].n-bp[i].n))*10)/10).toFixed(1);}} return'5.0'; })(e.xp_total),
+                "Nota": xpToNota(e.xp_total).toFixed(1),
                 Nivel:e.nivel||1
               };
             }),"nexus_top_por_apellido");
@@ -288,7 +296,7 @@ function DashboardPanel({ user, misiones }) {
             <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·{e.grupo||"—"}</div></div>
             <div style={{ textAlign:"right", flexShrink:0 }}>
               <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
-              {((xpVal) => { const _bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; let _nota="1.0"; if(xpVal>=250){_nota="5.0";}else if(xpVal>0){for(let _i=0;_i<_bp.length-1;_i++){if(xpVal>=_bp[_i].x&&xpVal<=_bp[_i+1].x){const _t=(xpVal-_bp[_i].x)/(_bp[_i+1].x-_bp[_i].x);_nota=(Math.round((_bp[_i].n+_t*(_bp[_i+1].n-_bp[_i].n))*10)/10).toFixed(1);break;}}} const _n=parseFloat(_nota); const _c=_n>=4.5?"#10d98a":_n>=4.0?"#22c55e":_n>=3.5?"#eab308":_n>=3.0?"#f97316":"#ef4444"; return <div style={{fontSize:11,fontWeight:800,color:_c}}>{_nota}</div>; })(e.xp_total)}
+              {(()=>{ const _n=xpToNota(e.xp_total); return <div style={{fontSize:11,fontWeight:800,color:notaColor(_n)}}>{_n.toFixed(1)}</div>; })()}
             </div>
           </div>
         )) : <div style={{ color:C.muted, fontSize:12 }}>Sin actividad registrada.</div>}
@@ -393,7 +401,7 @@ function ProgresoPanel({ user }) {
                   Grado:e.grado,
                   Grupo:e.grupo||"—",
                   "XP":e.xp_total,
-                  "Nota":((xp)=>{ const bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; if(!xp||xp<=0)return'1.0'; if(xp>=250)return'5.0'; for(let i=0;i<bp.length-1;i++){if(xp>=bp[i].x&&xp<=bp[i+1].x){const t=(xp-bp[i].x)/(bp[i+1].x-bp[i].x);return(Math.round((bp[i].n+t*(bp[i+1].n-bp[i].n))*10)/10).toFixed(1);}} return'5.0'; })(e.xp_total),
+                  "Nota": xpToNota(e.xp_total).toFixed(1),
                   Nivel:e.nivel||1
                 };
               }),"progreso_por_apellido");
@@ -405,7 +413,7 @@ function ProgresoPanel({ user }) {
               <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·Grp{e.grupo||"—"}·Nv{e.nivel||1}</div></div>
               <div style={{ textAlign:"right", flexShrink:0 }}>
                 <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
-                {((xpVal) => { const _bp=[{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}]; let _nota="1.0"; if(xpVal>=250){_nota="5.0";}else if(xpVal>0){for(let _i=0;_i<_bp.length-1;_i++){if(xpVal>=_bp[_i].x&&xpVal<=_bp[_i+1].x){const _t=(xpVal-_bp[_i].x)/(_bp[_i+1].x-_bp[_i].x);_nota=(Math.round((_bp[_i].n+_t*(_bp[_i+1].n-_bp[_i].n))*10)/10).toFixed(1);break;}}} const _n=parseFloat(_nota); const _c=_n>=4.5?"#10d98a":_n>=4.0?"#22c55e":_n>=3.5?"#eab308":_n>=3.0?"#f97316":"#ef4444"; return <div style={{fontSize:12,fontWeight:800,color:_c}}>{_nota}</div>; })(e.xp_total)}
+                {(()=>{ const _n=xpToNota(e.xp_total); return <div style={{fontSize:12,fontWeight:800,color:notaColor(_n)}}>{_n.toFixed(1)}</div>; })()}
               </div>
             </div>
           )):<div style={{ color:C.muted, fontSize:12 }}>Sin estudiantes con este filtro.</div>}
@@ -628,6 +636,74 @@ function AdminUsuarios() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// STUDENT PROGRESS CARD — carga datos reales de la BD
+// ═══════════════════════════════════════════════════════════════
+function StudentProgressCard({ user }) {
+  const [datos, setDatos] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/stats?docente_id=${user.docente_id||""}&role=student`)
+      .then(r=>r.json())
+      .then(d=>{
+        const yo = (d.topEstudiantes||[]).find(e=>String(e.estudiante_id)===String(user.id));
+        setDatos(yo||null); setLoading(false);
+      })
+      .catch(()=>setLoading(false));
+  }, [user.id]);
+
+  if (loading) return <div style={{ color:C.muted, fontSize:12, padding:12 }}>⏳ Cargando tu progreso...</div>;
+  if (!datos)  return <div style={{ color:C.muted, fontSize:12, padding:12 }}>Aún no tienes actividad registrada. ¡Empieza una misión! 🚀</div>;
+
+  const xp = datos.xp_total || 0;
+  const nota = xpToNota(xp);
+  const pct = Math.round(Math.min(xp / XP_MAXIMO, 1) * 100);
+
+  return (
+    <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:20, marginTop:14 }}>
+      <div style={{ fontSize:13, fontWeight:700, marginBottom:16, color:C.accent }}>📊 Tu desempeño en NEXUS</div>
+
+      {/* Nota grande */}
+      <div style={{ textAlign:"center", marginBottom:20 }}>
+        <div style={{ fontSize:11, color:C.muted, marginBottom:6, textTransform:"uppercase", letterSpacing:1 }}>Nota actual</div>
+        <div style={{ fontSize:56, fontWeight:900, fontFamily:"'Orbitron',monospace", color:notaColor(nota), lineHeight:1 }}>{nota.toFixed(1)}</div>
+        <div style={{ fontSize:11, color:C.muted, marginTop:4 }}>{pct}% de desarrollo · {xp} XP</div>
+      </div>
+
+      {/* Barra de progreso */}
+      <div style={{ marginBottom:16 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:C.muted, marginBottom:5 }}>
+          <span>1.0 · Inicio</span><span>3.0 · Básico</span><span>5.0 · Experto</span>
+        </div>
+        <div style={{ height:10, background:C.border, borderRadius:5, overflow:"hidden" }}>
+          <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${notaColor(nota)},${C.accent2})`, borderRadius:5, transition:"width 1s ease" }} />
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, color:C.muted, marginTop:3 }}>
+          <span>0 XP</span><span>150 XP</span><span>300 XP</span>
+        </div>
+      </div>
+
+      {/* Detalles */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+        {[["⭐","XP Acumulado",xp,"#f97316"],["🏆","Nivel",datos.nivel||1,C.accent],["📈","% Completado",`${pct}%`,C.accent2],["🎓","Nota",nota.toFixed(1),notaColor(nota)]].map(([ic,lb,val,col])=>(
+          <div key={lb} style={{ background:C.surface, borderRadius:10, padding:"10px 12px", border:`1px solid ${col}33`, textAlign:"center" }}>
+            <div style={{ fontSize:20, marginBottom:4 }}>{ic}</div>
+            <div style={{ fontSize:16, fontWeight:900, fontFamily:"'Orbitron',monospace", color:col }}>{val}</div>
+            <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{lb}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop:12, padding:"10px 14px", background:`${C.accent2}10`, borderRadius:10, border:`1px solid ${C.accent2}22`, fontSize:11, color:C.muted, lineHeight:1.7 }}>
+        💡 Cada interacción con NEXUS suma <strong style={{color:C.accent3}}>+5 XP</strong>.
+        Respuestas correctas suman <strong style={{color:C.accent3}}>+20 XP</strong>.
+        Con <strong style={{color:C.accent}}>300 XP</strong> alcanzas nota <strong style={{color:"#10d98a"}}>5.0</strong>.
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // STUDENT VIEW — con modo equipo
 // ═══════════════════════════════════════════════════════════════
 function StudentView({ user, onLogout }) {
@@ -638,7 +714,8 @@ function StudentView({ user, onLogout }) {
   const [showEquipo, setShowEquipo] = useState(false);
   const isMobile = useIsMobile();
 
-  useEffect(()=>{ getMisiones("","student").then(m=>setMisiones(m)); },[]);
+  // Bug fix: pasar docente_id para que el estudiante vea solo las misiones de su docente asignado
+  useEffect(()=>{ getMisiones(user.docente_id||"","student").then(m=>setMisiones(m)); },[user.docente_id]);
   const missionData = misiones.find(m=>m.id===mission);
 
   return (
@@ -677,7 +754,13 @@ function StudentView({ user, onLogout }) {
       )}
       {tab==="missions"&&<Page title="🗺️ Misiones"><MissionMap misiones={misiones} onSelect={id=>{setMission(id);setTab("chat");}} /></Page>}
       {tab==="team"&&<EquipoPanel user={user} equipo={equipo} setEquipo={setEquipo} onIrChat={()=>setTab("chat")} />}
-      {tab==="progress"&&<Page title="⭐ Mi Progreso"><InfoBox title={`🎓 ${user.name}`}><Row k="Grado" v={user.grade||"—"} /><Row k="Grupo" v={user.group||"—"} /></InfoBox></Page>}
+      {tab==="progress"&&<Page title="⭐ Mi Progreso">
+        <InfoBox title={`🎓 ${user.name}`}>
+          <Row k="Grado" v={user.grade||"—"} />
+          <Row k="Grupo" v={user.group||"—"} />
+        </InfoBox>
+        <StudentProgressCard user={user} />
+      </Page>}
 
       {/* Modal equipo activo */}
       {showEquipo&&equipo&&(
@@ -859,6 +942,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo }) {
         <span style={{ fontSize:9, fontFamily:"'Orbitron',monospace", color:C.accent, fontWeight:700 }}>NVL {lv}</span>
         <div style={{ flex:1, height:4, background:C.border, borderRadius:2 }}><div style={{ height:"100%", background:`linear-gradient(90deg,${C.accent},${C.accent2})`, width:`${pct}%`, borderRadius:2, transition:"width .5s" }} /></div>
         <span style={{ fontSize:9, color:C.muted, fontFamily:"'Orbitron',monospace" }}>{xp} XP</span>
+        {user&&<span style={{ fontSize:10, fontWeight:800, color:notaColor(xpToNota(xp)), fontFamily:"'Orbitron',monospace", background:C.card, padding:"1px 7px", borderRadius:6, border:`1px solid ${notaColor(xpToNota(xp))}55` }}>▶ {xpToNota(xp).toFixed(1)}</span>}
         {xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:11, color:C.accent3, fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:`1px solid ${C.accent3}` }}>+{xpAnim} XP ✨</span>}
       </div>
       <div style={{ flex:1, overflowY:"auto", padding: isMobile?"12px 10px":"16px 14px", display:"flex", flexDirection:"column", gap:12 }}>
