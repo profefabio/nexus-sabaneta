@@ -476,20 +476,20 @@ function ProgresoPanel({ user }) {
 // ═══════════════════════════════════════════════════════════════
 function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
   const [editando, setEditando] = useState(null);
-  const [form, setForm] = useState({ title:"", icon:"📻", color:"#f97316", description:"", retos:[] });
+  const [form, setForm] = useState({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[] });
   const [retoF, setRetoF] = useState({ title:"", desc:"", stars:1 });
   const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false); const [deleting, setDeleting] = useState(null);
 
-  const iniciarNueva = () => { setForm({ title:"", icon:"📻", color:"#f97316", description:"", retos:[] }); setEditando("nueva"); };
-  const iniciarEditar = (m) => { setForm({ id:m.id, title:m.title, icon:m.icon, color:m.color, description:m.description, retos:m.retos.map(r=>({...r})) }); setEditando(m.id); };
+  const iniciarNueva = () => { setForm({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[] }); setEditando("nueva"); };
+  const iniciarEditar = (m) => { setForm({ id:m.id, title:m.title, icon:m.icon, color:m.color, description:m.description, retos:m.retos.map(r=>({...r})), grados:m.grados||[] }); setEditando(m.id); };
   const agregarReto = () => { if(!retoF.title) return; setForm(p=>({...p,retos:[...p.retos,{id:p.retos.length+1,...retoF}]})); setRetoF({title:"",desc:"",stars:1}); };
   const quitarReto = (idx) => setForm(p=>({...p,retos:p.retos.filter((_,i)=>i!==idx).map((r,i)=>({...r,id:i+1}))}));
 
   const guardar = async () => {
     if(!form.title||form.retos.length===0) return;
     setSaving(true);
-    if(editando==="nueva"){ const n=await createMision(user.id,user.name,{title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos}); if(n) setMisiones(prev=>[...prev,n]); }
-    else { const a=await updateMision(user.id,{id:form.id,title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos}); if(a) setMisiones(prev=>prev.map(m=>m.id===form.id?a:m)); }
+    if(editando==="nueva"){ const n=await createMision(user.id,user.name,{title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos,grados:form.grados}); if(n) setMisiones(prev=>[...prev,n]); }
+    else { const a=await updateMision(user.id,{id:form.id,title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos,grados:form.grados}); if(a) setMisiones(prev=>prev.map(m=>m.id===form.id?a:m)); }
     setSaving(false); setSaved(true); setTimeout(()=>{setSaved(false);setEditando(null);},1500);
   };
   const eliminar = async (id) => {
@@ -509,7 +509,16 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:14, fontWeight:700, color:m.color }}>{m.title}</div>
             <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{m.description}</div>
-            <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{m.retos?.length||0} retos {user.role==="admin"?`· ${m.docente_nombre||"—"}`:""}</div>
+            <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>
+              {m.retos?.length||0} retos
+              {user.role==="admin"?` · ${m.docente_nombre||"—"}`:""}
+              {(m.grados||[]).length>0
+                ? <span style={{ marginLeft:6, color:m.color||C.accent, fontWeight:700 }}>
+                    · Grado(s): {(m.grados||[]).sort((a,b)=>Number(a)-Number(b)).join(", ")}
+                  </span>
+                : <span style={{ marginLeft:6, color:C.muted }}> · Todos los grados</span>
+              }
+            </div>
           </div>
           <div style={{ display:"flex", gap:6, flexShrink:0 }}>
             {(user.role==="admin"||m.docente_id===user.id)&&<>
@@ -531,6 +540,39 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
           <div><div style={lbl}>Ícono</div><div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>{ICONOS_MISION.map(ic=><button key={ic} onClick={()=>setForm(p=>({...p,icon:ic}))} style={{ width:34,height:34,borderRadius:8,border:`2px solid ${form.icon===ic?C.accent:C.border}`,background:form.icon===ic?`${C.accent}22`:C.surface,fontSize:16,cursor:"pointer" }}>{ic}</button>)}</div></div>
         </div>
         <div style={{ marginBottom:12 }}><div style={lbl}>Descripción</div><input style={inp} value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} /></div>
+        <div style={{ marginBottom:12 }}>
+          <div style={lbl}>🎓 Grados a los que va dirigida</div>
+          <div style={{ fontSize:11, color:C.muted, marginBottom:7 }}>Selecciona uno o más grados. Los estudiantes de esos grados verán esta misión.</div>
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {["6","7","8","9","10","11"].map(g=>{
+              const sel = (form.grados||[]).includes(g);
+              return (
+                <button key={g} type="button" onClick={()=>setForm(p=>({
+                  ...p,
+                  grados: sel ? p.grados.filter(x=>x!==g) : [...(p.grados||[]),g]
+                }))} style={{
+                  padding:"6px 14px", borderRadius:8, cursor:"pointer", fontFamily:"inherit",
+                  fontWeight:700, fontSize:13, transition:"all .15s",
+                  border:`2px solid ${sel?form.color:C.border}`,
+                  background: sel?form.color+"33":"transparent",
+                  color: sel?form.color:C.muted,
+                }}>
+                  {sel?"✓ ":""}{g}°
+                </button>
+              );
+            })}
+          </div>
+          {(form.grados||[]).length===0 && (
+            <div style={{ marginTop:6, fontSize:11, color:"#f97316" }}>
+              ⚠️ Sin grado seleccionado — todos los estudiantes verán esta misión
+            </div>
+          )}
+          {(form.grados||[]).length>0 && (
+            <div style={{ marginTop:6, fontSize:11, color:C.accent3 }}>
+              ✅ Visible para: Grado(s) {form.grados.sort((a,b)=>Number(a)-Number(b)).join(", ")}
+            </div>
+          )}
+        </div>
         <div><div style={lbl}>Color</div><div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>{COLORES_MISION.map(col=><button key={col} onClick={()=>setForm(p=>({...p,color:col}))} style={{ width:30,height:30,borderRadius:"50%",background:col,border:`3px solid ${form.color===col?"#fff":col}`,cursor:"pointer",transform:form.color===col?"scale(1.2)":"scale(1)" }} />)}</div>
           <div style={{ marginTop:10, display:"flex", alignItems:"center", gap:10 }}><span style={{ fontSize:26 }}>{form.icon}</span><span style={{ fontSize:14, fontWeight:700, color:form.color }}>{form.title||"Vista previa"}</span></div>
         </div>
@@ -962,8 +1004,17 @@ function StudentView({ user, onLogout }) {
   const [showEquipo, setShowEquipo] = useState(false);
   const isMobile = useIsMobile();
 
-  // Bug fix: pasar docente_id para que el estudiante vea solo las misiones de su docente asignado
-  useEffect(()=>{ getMisiones(user.docente_id||"","student").then(m=>setMisiones(m)); },[user.docente_id]);
+  // Cargar misiones del docente asignado y filtrar por grado del estudiante
+  useEffect(()=>{
+    getMisiones(user.docente_id||"","student").then(m=>{
+      // Mostrar solo misiones sin grado (todas), o donde el grado del estudiante esté incluido
+      const filtradas = m.filter(mision => {
+        if(!mision.grados || mision.grados.length===0) return true; // sin filtro = todos
+        return mision.grados.includes(String(user.grade));
+      });
+      setMisiones(filtradas);
+    });
+  },[user.docente_id, user.grade]);
   const missionData = misiones.find(m=>m.id===mission);
 
   return (
