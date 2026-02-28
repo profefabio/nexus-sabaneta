@@ -36,6 +36,7 @@ module.exports = async function handler(req, res) {
     const misiones = (data || []).map(m => ({
       ...m,
       retos: typeof m.retos === "string" ? JSON.parse(m.retos) : (m.retos || []),
+      grados: typeof m.grados === "string" ? JSON.parse(m.grados) : (m.grados || []),
       glow: m.color + "59",
     }));
     return res.status(200).json({ misiones });
@@ -43,26 +44,27 @@ module.exports = async function handler(req, res) {
 
   // POST — crear misión
   if (req.method === "POST") {
-    const { docente_id, docente_nombre, title, icon, color, description, retos } = req.body;
+    const { docente_id, docente_nombre, title, icon, color, description, retos, grados } = req.body;
     if (!docente_id || !title) return res.status(400).json({ error: "Faltan campos requeridos" });
     const { data, error } = await supabase.from("nexus_misiones").insert({
       docente_id, docente_nombre, title, icon, color, description,
       retos: JSON.stringify(retos || []),
+      grados: JSON.stringify(grados || []),
       created_at: new Date().toISOString(),
     }).select().single();
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ mision: { ...data, retos: retos || [], glow: color + "59" } });
+    return res.status(200).json({ mision: { ...data, retos: retos || [], grados: grados || [], glow: color + "59" } });
   }
 
   // PUT — actualizar misión
   if (req.method === "PUT") {
-    const { id, docente_id, title, icon, color, description, retos } = req.body;
+    const { id, docente_id, title, icon, color, description, retos, grados } = req.body;
     if (!id) return res.status(400).json({ error: "Falta el id de la misión" });
     const { data, error } = await supabase.from("nexus_misiones")
-      .update({ title, icon, color, description, retos: JSON.stringify(retos || []) })
+      .update({ title, icon, color, description, retos: JSON.stringify(retos || []), grados: JSON.stringify(grados || []) })
       .eq("id", id).eq("docente_id", docente_id).select().single();
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ mision: { ...data, retos: retos || [], glow: color + "59" } });
+    return res.status(200).json({ mision: { ...data, retos: retos || [], grados: grados || [], glow: color + "59" } });
   }
 
   // DELETE — eliminar misión
