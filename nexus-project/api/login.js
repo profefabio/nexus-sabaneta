@@ -68,7 +68,7 @@ module.exports = async function handler(req, res) {
 
     const { data: estudiantes, error } = await supabase
       .from("estudiantes")
-      .select("id, nombres, apellidos, grado, grupo")
+      .select("id, nombres, apellidos, grado, grupo, docente_id")
       .eq("grado", grado)
       .eq("grupo", grupo);
 
@@ -98,6 +98,7 @@ module.exports = async function handler(req, res) {
         role: "student",
         grade: est.grado,
         group: est.grupo,
+        docente_id: est.docente_id || null, // ← filtra misiones del docente asignado
       }
     });
   }
