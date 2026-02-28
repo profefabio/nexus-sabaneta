@@ -107,6 +107,22 @@ PERSONALIDAD: Animado, motivador, como guía de aventuras. Nunca das respuestas 
 METODOLOGÍA: 1) Pregunta qué sabe, 2) Una pista a la vez, 3) Celebra logros: "¡+20 puntos de maestría! ⭐"
 Siempre en español colombiano, cálido y motivador.`;
 
+// Prompt dinámico basado en los datos reales de la misión seleccionada
+const buildMissionPrompt = (mision, grade="7-11", extraEquipo="") => {
+  if (!mision) return buildPrompt("Tecnología e Informática", grade, extraEquipo);
+  const retosTexto = (mision.retos||[]).map((r,i)=>
+    `  Reto ${r.id}: ${r.title} (${"⭐".repeat(r.stars)}) — ${r.desc||"Sin descripción"}`
+  ).join("\n");
+  return `Eres NEXUS, compañero de retos académicos para estudiantes de grado ${grade} de la I.E. de Sabaneta, Colombia.
+Docente: ${mision.docente_nombre||"Docente"}.
+MISIÓN ACTIVA: "${mision.title}"
+Descripción de la misión: ${mision.description||"Sin descripción"}
+Retos que deben completar:
+${retosTexto||"  Sin retos definidos"}
+INSTRUCCIONES: Guía al estudiante ÚNICAMENTE sobre los temas de esta misión. No des respuestas directas; usa preguntas y pistas para que descubran el conocimiento. Ve reto por reto: pregunta cuál reto quieren abordar, explora sus saberes previos sobre ese reto, y da una pista a la vez. Celebra avances: "¡+20 puntos de maestría! ⭐"${extraEquipo?`\n${extraEquipo}`:""}
+PERSONALIDAD: Animado, motivador, en español colombiano, cálido y cercano.`;
+};
+
 const C = { bg:"#070d1a",surface:"#0d1526",card:"#111e33",border:"#1a3050",accent:"#00c8ff",accent2:"#8b5cf6",accent3:"#10d98a",text:"#e2e8f0",muted:"#4a6080",user:"#162040" };
 
 
@@ -750,12 +766,13 @@ function StudentView({ user, onLogout }) {
           </div>
           <div style={{ flex:1, overflow:"hidden", padding: isMobile?"0 10px 14px":"0 22px 22px" }}>
             <NexusChat
-              prompt={buildPrompt("Tecnología e Informática", user.grade||"7-11",
-                (mission?`Trabajan en: ${missionData?.title}. `:"")+
-                (equipo?`Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes. Líder: ${user.name}. Compañeros: ${equipo.integrantes.map(i=>`${i.nombres} ${i.apellidos}`).join(", ")}. Cuando respondas dirígete al equipo completo e incluye preguntas y actividades para que todos participen aunque solo uno tenga el dispositivo.`:"")
+              prompt={buildMissionPrompt(
+                missionData||null,
+                user.grade||"7-11",
+                equipo?`Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes. Líder: ${user.name}. Compañeros: ${equipo.integrantes.map(i=>`${i.nombres} ${i.apellidos}`).join(", ")}. Dirígete al equipo completo e incluye actividades para que todos participen aunque solo uno tenga el dispositivo.`:""
               )}
               userName={equipo?`Equipo ${equipo.nombre}`:user.name}
-              user={user} misionId={mission} equipo={equipo}
+              user={user} misionId={mission} equipo={equipo} misionData={missionData||null}
             />
           </div>
         </div>
@@ -925,9 +942,12 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
 // ═══════════════════════════════════════════════════════════════
 // NEXUS CHAT
 // ═══════════════════════════════════════════════════════════════
-function NexusChat({ prompt, userName, compact, user, misionId, equipo }) {
+function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData }) {
   const isMobile = useIsMobile();
-  const [msgs, setMsgs] = useState([{ role:"assistant", content:`¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, ${userName.split(" ")[0]}`:""}! 🚀 Soy **NEXUS**. Te guío con pistas para que TÚ descubras el conocimiento.\n\n💬 **Modo libre:** pregunta sobre tecnología.\n🗺️ **O elige una misión** en el menú. 🎯` }]);
+  const welcomeMsg = misionData
+    ? `¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, **${userName.split(" ")[0]}**`:""}! 🚀 Soy **NEXUS**.\n\n🗺️ Estamos en la misión: **${misionData.title}**\n${misionData.description?`📋 ${misionData.description}\n`:""}\n¿Qué reto quieres abordar primero? Dime tu número y comenzamos. 🎯`
+    : `¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, ${userName.split(" ")[0]}`:""}! 🚀 Soy **NEXUS**. Te guío con pistas para que TÚ descubras el conocimiento.\n\n💬 **Modo libre:** pregunta sobre tecnología.\n🗺️ **O elige una misión** en el menú. 🎯`;
+  const [msgs, setMsgs] = useState([{ role:"assistant", content: welcomeMsg }]);
   const [input, setInput] = useState(""); const [loading, setLoading] = useState(false);
   const [xp, setXp] = useState(0); const [xpAnim, setXpAnim] = useState(null);
   const endRef = useRef(null);
@@ -943,7 +963,9 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo }) {
     if(/maestría|exacto|correcto|¡así/i.test(reply)) addXP(20);
     setLoading(false);
   };
-  const SUGS=["¿Cómo funciona una Radio AM?","¿Qué es la Ley de Ohm?","¿Cómo programo un servo?","¿Para qué sirve el transistor?"];
+  const SUGS = misionData?.retos?.length > 0
+    ? misionData.retos.slice(0,4).map(r => `Reto ${r.id}: ${r.title}`)
+    : ["¿Cómo funciona una Radio AM?","¿Qué es la Ley de Ohm?","¿Cómo programo un servo?","¿Para qué sirve el transistor?"];
   return (
     <div style={{ display:"flex", flexDirection:"column", height:compact?400:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:16, overflow:"hidden" }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", background:C.surface, borderBottom:`1px solid ${C.border}`, position:"relative" }}>
