@@ -13,12 +13,21 @@ module.exports = async function handler(req, res) {
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-  // GET — obtener misiones (por docente o todas si es admin)
+  // GET — obtener misiones (por docente, por estudiante o todas si es admin)
   if (req.method === "GET") {
     const { docente_id, role } = req.query;
     let query = supabase.from("nexus_misiones").select("*").order("created_at", { ascending: true });
-    // Admin ve todas; docente solo las suyas
-    if (role !== "admin" && docente_id) {
+
+    if (role === "admin") {
+      // Admin ve TODAS las misiones — sin filtro
+    } else if (role === "student") {
+      // Estudiante ve solo las misiones del docente asignado.
+      // Si docente_id es vacío/null, ve todas (fallback para compatibilidad).
+      if (docente_id) {
+        query = query.eq("docente_id", docente_id);
+      }
+    } else if (docente_id) {
+      // Docente: solo ve y edita las suyas
       query = query.eq("docente_id", docente_id);
     }
     const { data, error } = await query;
