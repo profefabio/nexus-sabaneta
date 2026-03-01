@@ -15,7 +15,7 @@ module.exports = async function handler(req, res) {
   // ── GET: traer historial de un estudiante (con filtro opcional de misión)
   if (req.method === "GET") {
     const { estudiante_id, mision_id, docente_view } = req.query;
-    if (!estudiante_id) return res.status(400).json({ error: "Falta estudiante_id" });
+    if (!estudiante_id) return res.status(200).json({ error: "Falta estudiante_id" });
 
     let q = supabase
       .from("nexus_chats")
@@ -27,7 +27,7 @@ module.exports = async function handler(req, res) {
     if (mision_id) q = q.eq("mision_id", mision_id);
 
     const { data, error } = await q;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(200).json({ error: error.message });
     return res.status(200).json({ msgs: data || [] });
   }
 
@@ -37,7 +37,7 @@ module.exports = async function handler(req, res) {
             role, content, xp_at_time, equipo_nombre } = req.body;
 
     if (!estudiante_id || !role || !content)
-      return res.status(400).json({ error: "Faltan campos requeridos" });
+      return res.status(200).json({ error: "Faltan campos requeridos" });
 
     const { error } = await supabase.from("nexus_chats").insert({
       estudiante_id: String(estudiante_id),
@@ -51,9 +51,9 @@ module.exports = async function handler(req, res) {
       created_at: new Date().toISOString(),
     });
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(200).json({ error: error.message });
     return res.status(200).json({ success: true });
   }
 
-  return res.status(405).end();
+  return res.status(200).end();
 };
