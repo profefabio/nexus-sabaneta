@@ -1025,7 +1025,7 @@ function StudentView({ user, onLogout }) {
       {id:"progress",icon:"⭐",label:"Mi Progreso"},
     ]} />}>
       {tab==="chat"&&(
-        <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ height: isMobile ? "calc(100vh - 70px)" : "100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
           <div style={{ padding: isMobile?"10px 14px 0":"14px 22px 0", flexShrink:0 }}>
             <h1 style={{ ...ptitle, fontSize: isMobile?16:22, marginBottom:8 }}>NEXUS · Tu compañero de retos</h1>
             <div style={{ display:"flex", gap:7, marginBottom:8, flexWrap:"wrap" }}>
@@ -1039,7 +1039,7 @@ function StudentView({ user, onLogout }) {
               {!mission&&<div style={{ display:"flex", alignItems:"center", gap:5, background:`${C.accent3}15`, border:`1px solid ${C.accent3}44`, borderRadius:10, padding:"6px 10px", fontSize:11, color:C.accent3 }}>💬 Modo libre</div>}
             </div>
           </div>
-          <div style={{ flex:1, overflow:"hidden", padding: isMobile?"0 10px 14px":"0 22px 22px" }}>
+          <div style={{ flex:1, overflow:"hidden", padding: isMobile?"0 0 0":"0 22px 22px" }}>
             <NexusChat
               prompt={buildMissionPrompt(
                 missionData||null,
@@ -1242,7 +1242,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     ? misionData.retos.slice(0,4).map(r => `Reto ${r.id}: ${r.title}`)
     : ["¿Cómo funciona una Radio AM?","¿Qué es la Ley de Ohm?","¿Cómo programo un servo?","¿Para qué sirve el transistor?"];
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:compact?400:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:16, overflow:"hidden" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:compact?400:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius: isMobile?0:16, overflow:"hidden" }}>
       <div style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", background:C.surface, borderBottom:`1px solid ${C.border}`, position:"relative" }}>
         <span style={{ fontSize:9, fontFamily:"'Orbitron',monospace", color:C.accent, fontWeight:700 }}>NVL {lv}</span>
         <div style={{ flex:1, height:4, background:C.border, borderRadius:2 }}><div style={{ height:"100%", background:`linear-gradient(90deg,${C.accent},${C.accent2})`, width:`${pct}%`, borderRadius:2, transition:"width .5s" }} /></div>
@@ -1264,8 +1264,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         {msgs.length===1&&!loading&&<div><div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>💡 Sugerencias:</div><div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>{SUGS.map((q,i)=><button key={i} style={{ background:"transparent",border:`1px solid ${C.border}`,color:C.accent,padding: isMobile?"6px 10px":"6px 12px",borderRadius:20,fontSize:11,cursor:"pointer",fontFamily:"inherit" }} onClick={()=>send(q)}>{q}</button>)}</div></div>}
         <div ref={endRef} />
       </div>
-      <div style={{ display:"flex", gap:7, padding: isMobile?"10px":"11px 12px", borderTop:`1px solid ${C.border}`, background:C.surface, alignItems:"flex-end" }}>
-        <textarea style={{ flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding: isMobile?"9px 11px":"9px 12px",color:C.text,fontSize:13,resize:"none",fontFamily:"inherit",outline:"none",maxHeight:80 }} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); }}} placeholder={isMobile?"Escribe aquí...":"Pregunta lo que quieras... (Enter para enviar)"} rows={1} />
+      <div style={{ display:"flex", gap:7, padding: isMobile?"10px 10px 14px":"11px 12px", borderTop:`1px solid ${C.border}`, background:C.surface, alignItems:"flex-end" }}>
+        <textarea style={{ flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding: isMobile?"9px 11px":"9px 12px",color:C.text,fontSize:13,resize:"none",fontFamily:"inherit",outline:"none",maxHeight:80 }} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); }}} placeholder={isMobile?"Escribe aquí...":"Pregunta lo que quieras... (Enter para enviar)"} rows={isMobile?2:1} />
         <button style={{ width:36,height:36,borderRadius:9,background:`linear-gradient(135deg,${C.accent},${C.accent2})`,border:"none",color:"#fff",fontSize:14,cursor:"pointer",opacity:loading||!input.trim()?0.4:1,flexShrink:0 }} onClick={()=>send()} disabled={loading||!input.trim()}>➤</button>
       </div>
     </div>
@@ -1306,7 +1306,7 @@ function MissionMap({ misiones, onSelect }) {
 // ── Shared components ──
 function Layout({ sidebar, children }) {
   const isMobile = useIsMobile();
-  return <div style={{ display:"flex", height:"100vh", position:"relative", zIndex:5 }}>{sidebar}<main style={{ flex:1, overflow:"auto", background:C.bg }}>{children}</main></div>;
+  return <div style={{ display:"flex", height:"100vh", position:"relative", zIndex:5 }}>{sidebar}<main style={{ flex:1, overflow:"auto", background:C.bg, height: isMobile ? "calc(100vh - 70px)" : "100vh", marginBottom: isMobile ? 70 : 0 }}>{children}</main></div>;
 }
 
 function Sidebar({ user, onLogout, tabs, tab, setTab }) {
