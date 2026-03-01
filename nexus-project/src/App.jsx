@@ -13,13 +13,24 @@ const useIsMobile = () => {
 
 // ─── API helpers ──────────────────────────────────────────────
 const callNexus = async (messages, system) => {
-  const res = await fetch("/api/chat", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({ messages, system }),
-  });
-  const data = await res.json();
-  if (data.error) return "⚠️ " + data.error;
-  return data.content?.[0]?.text || "Error al conectar con NEXUS.";
+  try {
+    const res = await fetch("/api/chat", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ messages, system }),
+    });
+
+    // Si Vercel redirige por auth (301/302), capturarlo
+    if (res.status === 301 || res.status === 302 || res.status === 401 || res.status === 403) {
+      return "⚠️ Error de autenticación con el servicio de IA. El administrador debe verificar la API key en Vercel → Environment Variables → ANTHROPIC_API_KEY.";
+    }
+
+    const data = await res.json().catch(() => ({ error: "Respuesta inválida del servidor." }));
+    if (data.error) return data.error; // el error ya viene formateado desde chat.js
+    return data.content?.[0]?.text || "⚠️ NEXUS no pudo generar una respuesta. Intenta de nuevo.";
+  } catch (err) {
+    console.error("callNexus error:", err);
+    return "⚠️ Sin conexión con NEXUS. Verifica tu internet e intenta de nuevo.";
+  }
 };
 
 const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
@@ -1423,20 +1434,26 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     const t=txt||input.trim(); if(!t||loading) return;
     setInput("");
     const nm=[...msgs,{role:"user",content:t}]; setMsgs(nm); setLoading(true);
-    // Guardar mensaje del estudiante
-    if(user?.id && !compact) {
-      saveChatMsg(user, "user", t, misionId, misionTitle||misionData?.title, xp, equipo?.nombre||null);
+    try {
+      // Guardar mensaje del estudiante
+      if(user?.id && !compact) {
+        saveChatMsg(user, "user", t, misionId, misionTitle||misionData?.title, xp, equipo?.nombre||null);
+      }
+      addXP(5);
+      const reply=await callNexus(nm.map(m=>({role:m.role,content:m.content})),prompt);
+      setMsgs(p=>[...p,{role:"assistant",content:reply}]);
+      // Solo guardar en BD si no es un mensaje de error
+      if(user?.id && !compact && !reply.startsWith("⚠️")) {
+        const xpExtra = /maestría|exacto|correcto|¡así/i.test(reply) ? 20 : 0;
+        saveChatMsg(user, "assistant", reply, misionId, misionTitle||misionData?.title, xp+5+xpExtra, equipo?.nombre||null);
+      }
+      if(/maestría|exacto|correcto|¡así/i.test(reply)) addXP(20);
+    } catch(err) {
+      // Garantizar que el chat nunca se queda colgado
+      setMsgs(p=>[...p,{role:"assistant",content:"⚠️ Ocurrió un error inesperado. Intenta enviar tu mensaje de nuevo."}]);
+    } finally {
+      setLoading(false); // SIEMPRE desbloquear el chat
     }
-    addXP(5);
-    const reply=await callNexus(nm.map(m=>({role:m.role,content:m.content})),prompt);
-    setMsgs(p=>[...p,{role:"assistant",content:reply}]);
-    // Guardar respuesta de NEXUS
-    if(user?.id && !compact) {
-      const xpExtra = /maestría|exacto|correcto|¡así/i.test(reply) ? 20 : 0;
-      saveChatMsg(user, "assistant", reply, misionId, misionTitle||misionData?.title, xp+5+xpExtra, equipo?.nombre||null);
-    }
-    if(/maestría|exacto|correcto|¡así/i.test(reply)) addXP(20);
-    setLoading(false);
   };
   const SUGS = misionData?.retos?.length > 0
     ? misionData.retos.slice(0,4).map(r => `Reto ${r.id}: ${r.title}`)
