@@ -423,18 +423,18 @@ function DashboardPanel({ user, misiones }) {
 // INFORME INDIVIDUAL DE CHAT — para docentes
 // ═══════════════════════════════════════════════════════════════
 function ChatInformePanel({ user }) {
-  const [stats, setStats]       = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [selEst, setSelEst]     = useState(null);   // estudiante seleccionado
-  const [chatData, setChatData] = useState([]);
+  const [stats, setStats]         = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [selEst, setSelEst]       = useState(null);
+  const [chatData, setChatData]   = useState([]);
   const [loadingChat, setLoadingChat] = useState(false);
-  const [filtroGrado, setFiltroGrado] = useState("todos");
-  const [filtroGrupo, setFiltroGrupo] = useState("todos");
-  const [buscar, setBuscar]     = useState("");
-  const isMobile = useIsMobile();
+  // Cascada: grado → grupo → lista
+  const [filtroGrado, setFiltroGrado] = useState("");
+  const [filtroGrupo, setFiltroGrupo] = useState("");
 
+  // Siempre cargar con docente_id — admin ve sus propios estudiantes por defecto
   useEffect(() => {
-    const params = user.role === "admin" ? "?role=admin" : `?docente_id=${user.id}&role=teacher`;
+    const params = `?docente_id=${user.id}&role=${user.role==="admin"?"admin":"teacher"}`;
     fetch("/api/stats" + params).then(r => r.json()).then(d => {
       setStats(d); setLoading(false);
     }).catch(() => setLoading(false));
@@ -450,18 +450,22 @@ function ChatInformePanel({ user }) {
     setLoadingChat(false);
   };
 
-  const grados   = stats?.porGrado ? Object.keys(stats.porGrado).sort() : [];
-  let estudiantes = stats?.topEstudiantes || [];
-  if (filtroGrado !== "todos") estudiantes = estudiantes.filter(e => e.grado === filtroGrado);
-  if (filtroGrupo !== "todos") estudiantes = estudiantes.filter(e => e.grupo === filtroGrupo);
-  if (buscar) estudiantes = estudiantes.filter(e =>
-    (e.nombre_estudiante||"").toLowerCase().includes(buscar.toLowerCase())
-  );
-  estudiantes = [...estudiantes].sort((a,b) =>
-    (a.nombre_estudiante||"").localeCompare(b.nombre_estudiante||"", "es")
-  );
+  // Grados disponibles ordenados
+  const todosEstudiantes = stats?.topEstudiantes || [];
+  const gradosDisp = [...new Set(todosEstudiantes.map(e=>e.grado))].filter(Boolean).sort((a,b)=>Number(a)-Number(b));
+  const gruposDisp = filtroGrado
+    ? [...new Set(todosEstudiantes.filter(e=>e.grado===filtroGrado).map(e=>e.grupo))].filter(Boolean).sort()
+    : [];
 
-  // Agrupar mensajes por misión para el informe
+  // Lista solo cuando grado+grupo están seleccionados
+  const mostrarLista = filtroGrado && filtroGrupo;
+  const estudiantesFiltrados = mostrarLista
+    ? [...todosEstudiantes]
+        .filter(e => e.grado===filtroGrado && e.grupo===filtroGrupo)
+        .sort((a,b)=>(a.nombre_estudiante||"").localeCompare(b.nombre_estudiante||"","es"))
+    : [];
+
+  // Agrupar mensajes por misión para el informe individual
   const misionesMsgs = {};
   chatData.forEach(m => {
     const key = m.mision_title || "Modo libre";
@@ -469,57 +473,45 @@ function ChatInformePanel({ user }) {
     misionesMsgs[key].push(m);
   });
 
+  // ── Vista informe individual ──────────────────────────────────
   if (selEst) return (
     <Page title={`📋 Informe: ${selEst.nombre_estudiante}`}>
       <button onClick={() => setSelEst(null)} style={{ marginBottom:14, background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13 }}>← Volver a lista</button>
-      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:14 }}>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
         {[["🎓 Grado", selEst.grado||"—"], ["👥 Grupo", selEst.grupo||"—"],
-          ["⭐ XP Total", selEst.xp_total||0], ["🏆 Nota Final", (selEst.nota_definitiva||1.0).toFixed(1)],
+          ["⭐ XP", selEst.xp_total||0], ["🏆 Nota", (selEst.nota_definitiva||1.0).toFixed(1)],
           ["💬 Mensajes", chatData.length]
         ].map(([k,v]) => (
-          <div key={k} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"8px 14px", fontSize:12 }}>
+          <div key={k} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"7px 13px", fontSize:12 }}>
             <span style={{ color:C.muted }}>{k}: </span>
-            <span style={{ fontWeight:700, color:C.accent }}>{v}</span>
+            <span style={{ fontWeight:800, color:C.accent }}>{v}</span>
           </div>
         ))}
       </div>
       {loadingChat && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando chat...</div>}
       {!loadingChat && chatData.length === 0 && (
-        <div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center" }}>
-          📭 Este estudiante aún no tiene mensajes registrados.
+        <div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center", background:C.card, borderRadius:12 }}>
+          📭 Este estudiante aún no tiene mensajes registrados en esta misión.
         </div>
       )}
       {!loadingChat && Object.entries(misionesMsgs).map(([mision, msgs]) => (
         <Card key={mision} title={`🗺️ ${mision} — ${msgs.length} mensajes`}>
-          <div style={{ maxHeight:400, overflowY:"auto", display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ maxHeight:420, overflowY:"auto", display:"flex", flexDirection:"column", gap:8 }}>
             {msgs.map((m, i) => (
-              <div key={i} style={{
-                display:"flex", gap:8, alignItems:"flex-start",
-                justifyContent: m.role==="user" ? "flex-end" : "flex-start"
-              }}>
+              <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", justifyContent:m.role==="user"?"flex-end":"flex-start" }}>
                 {m.role==="assistant" && (
-                  <div style={{ width:24, height:24, borderRadius:"50%", background:`${C.accent}22`,
-                    border:`1px solid ${C.accent}`, display:"flex", alignItems:"center",
-                    justifyContent:"center", fontSize:11, color:C.accent, flexShrink:0 }}>⬡</div>
+                  <div style={{ width:24,height:24,borderRadius:"50%",background:`${C.accent}22`,border:`1px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:C.accent,flexShrink:0 }}>⬡</div>
                 )}
-                <div style={{
-                  background: m.role==="user" ? C.user : C.surface,
-                  border:`1px solid ${m.role==="user" ? C.accent2+"44" : C.border}`,
-                  borderRadius: m.role==="user" ? "12px 3px 12px 12px" : "3px 12px 12px 12px",
-                  padding:"8px 12px", maxWidth:"78%"
-                }}>
-                  <div style={{ fontSize:12, lineHeight:1.6 }}
-                    dangerouslySetInnerHTML={{ __html: (m.content||"").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>") }} />
+                <div style={{ background:m.role==="user"?C.user:C.surface, border:`1px solid ${m.role==="user"?C.accent2+"44":C.border}`, borderRadius:m.role==="user"?"12px 3px 12px 12px":"3px 12px 12px 12px", padding:"8px 12px", maxWidth:"78%" }}>
+                  <div style={{ fontSize:12, lineHeight:1.6 }} dangerouslySetInnerHTML={{ __html:(m.content||"").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>") }} />
                   <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>
                     {new Date(m.created_at).toLocaleString("es-CO")}
-                    {m.xp_at_time ? ` · ${m.xp_at_time} XP` : ""}
-                    {m.equipo_nombre ? ` · Equipo: ${m.equipo_nombre}` : ""}
+                    {m.xp_at_time?` · ${m.xp_at_time} XP`:""}
+                    {m.equipo_nombre?` · Equipo: ${m.equipo_nombre}`:""}
                   </div>
                 </div>
                 {m.role==="user" && (
-                  <div style={{ width:24, height:24, borderRadius:"50%", background:C.user,
-                    border:`1px solid ${C.accent2}`, display:"flex", alignItems:"center",
-                    justifyContent:"center", fontSize:11, flexShrink:0 }}>👤</div>
+                  <div style={{ width:24,height:24,borderRadius:"50%",background:C.user,border:`1px solid ${C.accent2}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,flexShrink:0 }}>👤</div>
                 )}
               </div>
             ))}
@@ -529,75 +521,115 @@ function ChatInformePanel({ user }) {
     </Page>
   );
 
+  // ── Vista lista con cascada grado → grupo → estudiantes ───────
   return (
     <Page title="💬 Informes de Chat">
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
-        <input style={{ ...inp, maxWidth:220 }} placeholder="Buscar estudiante..." value={buscar} onChange={e=>setBuscar(e.target.value)} />
-        <select style={{ ...inp, width:"auto", padding:"6px 10px", fontSize:12 }} value={filtroGrado} onChange={e=>{setFiltroGrado(e.target.value);setFiltroGrupo("todos");}}>
-          <option value="todos">Todos los grados</option>
-          {grados.map(g=><option key={g} value={g}>Grado {g}</option>)}
-        </select>
-        <select style={{ ...inp, width:"auto", padding:"6px 10px", fontSize:12 }} value={filtroGrupo} onChange={e=>setFiltroGrupo(e.target.value)}>
-          <option value="todos">Todos los grupos</option>
-          {["1","2","3","4"].map(g=><option key={g} value={g}>Grupo {g}</option>)}
-        </select>
-      </div>
-      {loading && <div style={{ color:C.muted }}>⏳ Cargando...</div>}
-      {!loading && estudiantes.length === 0 && <div style={{ color:C.muted }}>Sin estudiantes con este filtro.</div>}
-      <Card title={`🎓 Estudiantes — ${estudiantes.length} resultado${estudiantes.length!==1?"s":""}`}>
-        {estudiantes.map((e, i) => {
-          const nota = e.nota_definitiva || 1.0;
-          return (
-            <div key={i} onClick={() => verChat(e)}
-              style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
-                background:C.surface, borderRadius:10, marginBottom:7,
-                border:`1px solid ${C.border}`, cursor:"pointer",
-                transition:"border .15s"
-              }}
-              onMouseEnter={el => el.currentTarget.style.borderColor = C.accent+"66"}
-              onMouseLeave={el => el.currentTarget.style.borderColor = C.border}
-            >
-              <div style={{ width:34,height:34,borderRadius:"50%",background:`${C.accent3}22`,
-                border:`1.5px solid ${C.accent3}44`,display:"flex",alignItems:"center",
-                justifyContent:"center",fontSize:16,flexShrink:0 }}>🎓</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:12, fontWeight:700 }}>{e.nombre_estudiante||"—"}</div>
-                <div style={{ fontSize:10, color:C.muted }}>G{e.grado}·Grp{e.grupo||"—"} · {e.xp_total||0} XP</div>
-              </div>
-              <div style={{ textAlign:"right", flexShrink:0 }}>
-                <div style={{ fontSize:14, fontWeight:900, color:notaColor(nota), fontFamily:"'Orbitron',monospace" }}>{nota.toFixed(1)}</div>
-                <div style={{ fontSize:10, color:C.muted }}>Ver chat →</div>
-              </div>
+      {loading && <div style={{ color:C.muted }}>⏳ Cargando estudiantes...</div>}
+      {!loading && <>
+        {/* Paso 1: Seleccionar Grado */}
+        <Card title="📚 Paso 1 — Selecciona el Grado">
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {gradosDisp.map(g => (
+              <button key={g} onClick={()=>{setFiltroGrado(g);setFiltroGrupo("");setSelEst(null);}} style={{
+                padding:"8px 18px", borderRadius:10, cursor:"pointer", fontWeight:700, fontSize:14,
+                border:`2px solid ${filtroGrado===g?C.accent:C.border}`,
+                background: filtroGrado===g?`${C.accent}22`:"transparent",
+                color: filtroGrado===g?C.accent:C.muted,
+              }}>{g}°</button>
+            ))}
+            {gradosDisp.length===0 && <div style={{ color:C.muted, fontSize:13 }}>Sin datos de estudiantes aún.</div>}
+          </div>
+        </Card>
+
+        {/* Paso 2: Seleccionar Grupo (solo si hay grado) */}
+        {filtroGrado && (
+          <Card title={`👥 Paso 2 — Selecciona el Grupo (Grado ${filtroGrado})`}>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {gruposDisp.map(g => (
+                <button key={g} onClick={()=>{setFiltroGrupo(g);setSelEst(null);}} style={{
+                  padding:"8px 18px", borderRadius:10, cursor:"pointer", fontWeight:700, fontSize:14,
+                  border:`2px solid ${filtroGrupo===g?C.accent2:C.border}`,
+                  background: filtroGrupo===g?`${C.accent2}22`:"transparent",
+                  color: filtroGrupo===g?C.accent2:C.muted,
+                }}>Grupo {g}</button>
+              ))}
             </div>
-          );
-        })}
-      </Card>
+          </Card>
+        )}
+
+        {/* Paso 3: Lista de estudiantes (solo si grado + grupo seleccionados) */}
+        {mostrarLista && (
+          <Card title={`🎓 Grado ${filtroGrado} · Grupo ${filtroGrupo} — ${estudiantesFiltrados.length} estudiante${estudiantesFiltrados.length!==1?"s":""}`}>
+            {estudiantesFiltrados.length===0
+              ? <div style={{ color:C.muted, fontSize:13 }}>Sin estudiantes en este grupo con actividad.</div>
+              : estudiantesFiltrados.map((e, i) => {
+                  const nota = e.nota_definitiva || 1.0;
+                  return (
+                    <div key={i} onClick={() => verChat(e)}
+                      style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                        background:C.surface, borderRadius:10, marginBottom:6,
+                        border:`1px solid ${C.border}`, cursor:"pointer" }}
+                      onMouseEnter={el=>el.currentTarget.style.borderColor=C.accent+"66"}
+                      onMouseLeave={el=>el.currentTarget.style.borderColor=C.border}
+                    >
+                      <div style={{ width:34,height:34,borderRadius:"50%",background:`${C.accent3}22`,border:`1.5px solid ${C.accent3}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>🎓</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:700 }}>{e.nombre_estudiante||"—"}</div>
+                        <div style={{ fontSize:10, color:C.muted }}>{e.xp_total||0} XP · Nivel {e.nivel||1}</div>
+                      </div>
+                      <div style={{ textAlign:"right", flexShrink:0 }}>
+                        <div style={{ fontSize:15, fontWeight:900, color:notaColor(nota), fontFamily:"'Orbitron',monospace" }}>{nota.toFixed(1)}</div>
+                        <div style={{ fontSize:10, color:C.accent }}>Ver chat →</div>
+                      </div>
+                    </div>
+                  );
+                })
+            }
+          </Card>
+        )}
+      </>}
     </Page>
   );
 }
 
 function ProgresoPanel({ user }) {
-  const [stats, setStats] = useState(null);
+  const [stats, setStats]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filtroGrado, setFiltroGrado] = useState("todos");
-  const [filtroGrupo, setFiltroGrupo] = useState("todos");
-  const [ordenAZ, setOrdenAZ] = useState(false);
+  // Cascada: grado → grupo → lista
+  const [filtroGrado, setFiltroGrado] = useState("");
+  const [filtroGrupo, setFiltroGrupo] = useState("");
 
+  // Siempre cargar con docente_id — admin ve sus propios estudiantes por defecto
   useEffect(() => {
-    const params = user?.role === "teacher"
-      ? `?docente_id=${user.id}&role=teacher`
-      : `?role=admin`;
+    const params = `?docente_id=${user.id}&role=${user.role==="admin"?"admin":"teacher"}`;
     fetch(`/api/stats${params}`)
       .then(r=>r.json())
       .then(d=>{ setStats(d); setLoading(false); })
       .catch(()=>setLoading(false));
   }, [user?.id]);
 
-  const grados = stats?.porGrado ? Object.keys(stats.porGrado).sort() : [];
-  let estudiantes = stats?.topEstudiantes || [];
-  if (filtroGrado!=="todos") estudiantes = estudiantes.filter(e=>e.grado===filtroGrado);
-  if (filtroGrupo!=="todos") estudiantes = estudiantes.filter(e=>e.grupo===filtroGrupo);
-  if (ordenAZ) estudiantes = [...estudiantes].sort((a,b)=>a.nombre_estudiante.localeCompare(b.nombre_estudiante));
+  const todosEstudiantes = stats?.topEstudiantes || [];
+  const gradosDisp = [...new Set(todosEstudiantes.map(e=>e.grado))].filter(Boolean).sort((a,b)=>Number(a)-Number(b));
+  const gruposDisp = filtroGrado
+    ? [...new Set(todosEstudiantes.filter(e=>e.grado===filtroGrado).map(e=>e.grupo))].filter(Boolean).sort()
+    : [];
+  const mostrarLista = filtroGrado && filtroGrupo;
+  const estudiantesFiltrados = mostrarLista
+    ? [...todosEstudiantes]
+        .filter(e => e.grado===filtroGrado && e.grupo===filtroGrupo)
+        .sort((a,b)=>(a.nombre_estudiante||"").localeCompare(b.nombre_estudiante||"","es"))
+    : [];
+
+  // Actividad por grado (solo de los propios)
+  const porGradoLocal = {};
+  todosEstudiantes.forEach(e => {
+    const g = e.grado||"?";
+    if(!porGradoLocal[g]) porGradoLocal[g] = { count:0, xp:0 };
+    porGradoLocal[g].count++;
+    porGradoLocal[g].xp += e.xp_total||0;
+  });
+  const gradosActividad = Object.keys(porGradoLocal).sort((a,b)=>Number(a)-Number(b));
+  const maxXP = Math.max(...gradosActividad.map(g=>porGradoLocal[g].xp), 1);
 
   return (
     <Page title="📊 Progreso Estudiantil">
@@ -608,48 +640,108 @@ function ProgresoPanel({ user }) {
           <div style={{ fontSize:32, marginBottom:12 }}>🗺️</div>
           <div style={{ fontSize:16, fontWeight:800, color:C.accent2, marginBottom:8 }}>Aún no tienes misiones creadas</div>
           <div style={{ fontSize:13, color:C.muted, lineHeight:1.7 }}>
-            El progreso de tus estudiantes aparecerá aquí cuando trabajen en tus misiones.<br/>
+            El progreso aparecerá aquí cuando tus estudiantes trabajen en tus misiones.<br/>
             Ve a <strong style={{color:C.accent}}>Mis Misiones</strong> para crear la primera. 🚀
           </div>
         </div>
       )}
 
       {!loading && stats && !stats.sinMisiones && <>
-        <Card title="📈 Actividad por Grado">
-          {grados.length>0?grados.map(g=>{
-            const d=stats.porGrado[g]; const mx=Math.max(...grados.map(k=>stats.porGrado[k].xp),1);
-            return <div key={g} style={{ marginBottom:10 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}><span style={{ fontSize:12, fontWeight:600 }}>Grado {g}</span><span style={{ fontSize:10, color:C.muted }}>{d.count} est. · {d.xp} XP</span></div>
-              <div style={{ height:7, background:C.border, borderRadius:4 }}><div style={{ height:"100%", width:`${Math.round(d.xp/mx*100)}%`, background:`linear-gradient(90deg,${C.accent},${C.accent2})`, borderRadius:4 }} /></div>
-            </div>;
-          }):<div style={{ color:C.muted, fontSize:12 }}>Sin actividad aún.</div>}
-        </Card>
-        <Card title="🎓 Detalle por Estudiante">
-          <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
-            <select style={{ ...inp, width:"auto", padding:"6px 10px", fontSize:12 }} value={filtroGrado} onChange={e=>{setFiltroGrado(e.target.value);setFiltroGrupo("todos");}}>
-              <option value="todos">Todos los grados</option>{grados.map(g=><option key={g} value={g}>Grado {g}</option>)}
-            </select>
-            <select style={{ ...inp, width:"auto", padding:"6px 10px", fontSize:12 }} value={filtroGrupo} onChange={e=>setFiltroGrupo(e.target.value)}>
-              <option value="todos">Todos los grupos</option>{["1","2","3","4"].map(g=><option key={g} value={g}>Grupo {g}</option>)}
-            </select>
-            <button onClick={()=>setOrdenAZ(!ordenAZ)} style={{ padding:"6px 10px", background:ordenAZ?`${C.accent2}33`:C.surface, border:`1px solid ${ordenAZ?C.accent2:C.border}`, borderRadius:8, color:ordenAZ?C.accent2:C.muted, fontSize:11, cursor:"pointer" }}>{ordenAZ?"🔤 A→Z":"🏆 XP"}</button>
-            <button onClick={()=>downloadExcelMisiones(
-                stats?.topEstudiantes||[],
-                stats?.misiones||[],
-                `notas_${user.subject||user.name||"docente"}_por_mision`.replace(/\s+/g,"_")
-              )} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>⬇️ Excel por Misiones</button>
+        {/* Resumen actividad por grado */}
+        {gradosActividad.length > 0 && (
+          <Card title="📈 Actividad por Grado">
+            {gradosActividad.map(g => {
+              const d = porGradoLocal[g];
+              return (
+                <div key={g} onClick={()=>{setFiltroGrado(g);setFiltroGrupo("");}}
+                  style={{ marginBottom:10, cursor:"pointer", padding:"4px 6px", borderRadius:8,
+                    background: filtroGrado===g?`${C.accent}11`:"transparent",
+                    border: `1px solid ${filtroGrado===g?C.accent+"44":"transparent"}` }}
+                >
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:filtroGrado===g?C.accent:C.text }}>
+                      {filtroGrado===g?"▶ ":""}Grado {g}
+                    </span>
+                    <span style={{ fontSize:10, color:C.muted }}>{d.count} est. · {d.xp} XP</span>
+                  </div>
+                  <div style={{ height:7, background:C.border, borderRadius:4 }}>
+                    <div style={{ height:"100%", width:`${Math.round(d.xp/maxXP*100)}%`, background:`linear-gradient(90deg,${C.accent},${C.accent2})`, borderRadius:4 }} />
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>💡 Clic en un grado para filtrar abajo</div>
+          </Card>
+        )}
+
+        {/* Paso 1: Seleccionar Grado */}
+        <Card title="📚 Paso 1 — Selecciona el Grado">
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {gradosDisp.map(g => (
+              <button key={g} onClick={()=>{setFiltroGrado(g);setFiltroGrupo("");}} style={{
+                padding:"8px 18px", borderRadius:10, cursor:"pointer", fontWeight:700, fontSize:14,
+                border:`2px solid ${filtroGrado===g?C.accent:C.border}`,
+                background: filtroGrado===g?`${C.accent}22`:"transparent",
+                color: filtroGrado===g?C.accent:C.muted,
+              }}>{g}°</button>
+            ))}
           </div>
-          {estudiantes.length>0?estudiantes.map((e,i)=>(
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:C.surface, borderRadius:10, marginBottom:5, border:`1px solid ${C.border}` }}>
-              <span style={{ fontFamily:"'Orbitron',monospace", color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":C.muted, fontSize:10, width:22, fontWeight:900 }}>#{i+1}</span>
-              <div style={{ flex:1, minWidth:0 }}><div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div><div style={{ fontSize:10, color:C.muted }}>G{e.grado}·Grp{e.grupo||"—"}·Nv{e.nivel||1}</div></div>
-              <div style={{ textAlign:"right", flexShrink:0 }}>
-                <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total} XP</div>
-                {(()=>{ const _n = e.nota_definitiva || xpToNota(e.xp_total); return <div style={{fontSize:12,fontWeight:800,color:notaColor(_n)}}>{_n.toFixed(1)}</div>; })()}
-              </div>
-            </div>
-          )):<div style={{ color:C.muted, fontSize:12 }}>Sin estudiantes con este filtro.</div>}
         </Card>
+
+        {/* Paso 2: Seleccionar Grupo */}
+        {filtroGrado && (
+          <Card title={`👥 Paso 2 — Selecciona el Grupo (Grado ${filtroGrado})`}>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {gruposDisp.map(g => (
+                <button key={g} onClick={()=>setFiltroGrupo(g)} style={{
+                  padding:"8px 18px", borderRadius:10, cursor:"pointer", fontWeight:700, fontSize:14,
+                  border:`2px solid ${filtroGrupo===g?C.accent2:C.border}`,
+                  background: filtroGrupo===g?`${C.accent2}22`:"transparent",
+                  color: filtroGrupo===g?C.accent2:C.muted,
+                }}>Grupo {g}</button>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Paso 3: Lista de estudiantes */}
+        {mostrarLista && (
+          <Card title={`🎓 Grado ${filtroGrado} · Grupo ${filtroGrupo} — ${estudiantesFiltrados.length} estudiante${estudiantesFiltrados.length!==1?"s":""}`}>
+            <div style={{ marginBottom:10 }}>
+              <button onClick={()=>downloadExcelMisiones(
+                estudiantesFiltrados, stats?.misiones||[],
+                `notas_G${filtroGrado}_Grp${filtroGrupo}`.replace(/\s+/g,"_")
+              )} style={{ padding:"6px 12px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>
+                ⬇️ Excel este grupo
+              </button>
+              <button onClick={()=>downloadExcelMisiones(
+                todosEstudiantes, stats?.misiones||[],
+                `notas_${user.subject||user.name||"docente"}_todos`.replace(/\s+/g,"_")
+              )} style={{ marginLeft:8, padding:"6px 12px", background:`${C.accent}11`, border:`1px solid ${C.accent}44`, borderRadius:8, color:C.accent, fontSize:11, cursor:"pointer" }}>
+                ⬇️ Excel todos mis estudiantes
+              </button>
+            </div>
+            {estudiantesFiltrados.length===0
+              ? <div style={{ color:C.muted, fontSize:13 }}>Sin actividad en este grupo aún.</div>
+              : estudiantesFiltrados.map((e, i) => {
+                  const nota = e.nota_definitiva || xpToNota(e.xp_total);
+                  return (
+                    <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:C.surface, borderRadius:10, marginBottom:6, border:`1px solid ${C.border}` }}>
+                      <span style={{ fontFamily:"'Orbitron',monospace", color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":C.muted, fontSize:10, width:22, fontWeight:900 }}>#{i+1}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div>
+                        <div style={{ fontSize:10, color:C.muted }}>Nivel {e.nivel||1} · {e.xp_total||0} XP</div>
+                      </div>
+                      <div style={{ textAlign:"right", flexShrink:0 }}>
+                        <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total||0} XP</div>
+                        <div style={{ fontSize:13, fontWeight:800, color:notaColor(nota) }}>{nota.toFixed(1)}</div>
+                      </div>
+                    </div>
+                  );
+                })
+            }
+          </Card>
+        )}
       </>}
     </Page>
   );
