@@ -231,7 +231,7 @@ export default function App() {
     try {
       const res = await fetch("/api/login", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
       const data = await res.json();
-      if (res.ok && data.user) { setUser(data.user); setView(data.user.role==="admin"?"admin":data.user.role==="teacher"?"teacher":"student"); setLoginErr(""); }
+      if (data.user) { setUser(data.user); setView(data.user.role==="admin"?"admin":data.user.role==="teacher"?"teacher":"student"); setLoginErr(""); }
       else setLoginErr(data.error || "No encontrado. Verifica tus datos.");
     } catch { setLoginErr("Error de conexión."); }
   };
