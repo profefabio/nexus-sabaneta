@@ -13,7 +13,6 @@ module.exports = async function handler(req, res) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
   const { docente_id, role } = req.query;
-  const esDocente = role === "teacher" && docente_id;
 
   try {
     const [{ count: totalEstudiantes }, { count: totalDocentes }] = await Promise.all([
@@ -21,11 +20,12 @@ module.exports = async function handler(req, res) {
       supabase.from("docentes").select("*", { count: "exact", head: true }),
     ]);
 
-    // ── Obtener misiones del docente con sus títulos ──────────
+    // ── Siempre filtrar por docente_id (admin y teacher igual) ──
+    // Cada usuario ve SOLO las misiones y estudiantes que le corresponden
     let misionIds = null;
-    let misionesMap = {}; // { id → { title, docente_nombre } }
+    let misionesMap = {};
 
-    if (esDocente) {
+    if (docente_id) {
       const { data: misMisiones } = await supabase
         .from("nexus_misiones")
         .select("id, title, docente_nombre")
@@ -43,7 +43,7 @@ module.exports = async function handler(req, res) {
         });
       }
     } else {
-      // Admin: cargar todas las misiones
+      // Sin docente_id: fallback — cargar todas (solo para uso interno/debug)
       const { data: todasMisiones } = await supabase
         .from("nexus_misiones")
         .select("id, title, docente_nombre")
