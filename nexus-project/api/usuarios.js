@@ -9,7 +9,7 @@ module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
-    return res.status(500).json({ error: "Faltan variables de entorno" });
+    return res.status(200).json({ error: "Faltan variables de entorno" });
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
@@ -38,7 +38,7 @@ module.exports = async function handler(req, res) {
     // Limpiar progreso (acción existente)
     if (accion === "limpiar_progreso") {
       const { error } = await supabase.from("nexus_progreso").delete().neq("id", 0);
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) return res.status(200).json({ error: error.message });
       return res.status(200).json({ success: true });
     }
 
@@ -46,13 +46,13 @@ module.exports = async function handler(req, res) {
     if (accion === "crear_docente") {
       const { nombres, apellidos, email, asignatura, password } = req.body;
       if (!nombres || !apellidos || !email || !password)
-        return res.status(400).json({ error: "Faltan campos requeridos" });
+        return res.status(200).json({ error: "Faltan campos requeridos" });
 
       // Verificar si ya existe
       const { data: existe } = await supabase.from("docentes")
         .select("id").ilike("email", email.trim()).limit(1);
       if (existe?.length > 0)
-        return res.status(400).json({ error: "Ya existe un docente con ese correo" });
+        return res.status(200).json({ error: "Ya existe un docente con ese correo" });
 
       const clave = await bcrypt.hash(password, 10);
       const { data, error } = await supabase.from("docentes").insert({
@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
         fecha_registro: new Date().toISOString(),
       }).select("id, nombres, apellidos, email, asignatura").single();
 
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) return res.status(200).json({ error: error.message });
       return res.status(200).json({ success: true, docente: data });
     }
 
@@ -72,7 +72,7 @@ module.exports = async function handler(req, res) {
     if (accion === "crear_estudiante") {
       const { nombres, apellidos, grado, grupo, docente_id } = req.body;
       if (!nombres || !apellidos || !grado || !grupo)
-        return res.status(400).json({ error: "Faltan campos requeridos" });
+        return res.status(200).json({ error: "Faltan campos requeridos" });
 
       const { data, error } = await supabase.from("estudiantes").insert({
         nombres: nombres.trim(),
@@ -83,7 +83,7 @@ module.exports = async function handler(req, res) {
         fecha_registro: new Date().toISOString(),
       }).select("id, nombres, apellidos, grado, grupo, docente_id").single();
 
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) return res.status(200).json({ error: error.message });
       return res.status(200).json({ success: true, estudiante: data });
     }
 
@@ -93,7 +93,7 @@ module.exports = async function handler(req, res) {
       // grados: array de strings ["6","7","8"] o null para todos
       // grupos: array de strings ["1","2"] o null para todos
       if (!docente_id)
-        return res.status(400).json({ error: "Falta docente_id" });
+        return res.status(200).json({ error: "Falta docente_id" });
 
       let query = supabase.from("estudiantes")
         .update({ docente_id: String(docente_id) });
@@ -102,17 +102,17 @@ module.exports = async function handler(req, res) {
       if (grupos?.length > 0) query = query.in("grupo", grupos);
 
       const { error, count } = await query;
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) return res.status(200).json({ error: error.message });
       return res.status(200).json({ success: true, actualizados: count });
     }
 
-    return res.status(400).json({ error: "Acción no reconocida" });
+    return res.status(200).json({ error: "Acción no reconocida" });
   }
 
   // ── DELETE: eliminar docente o estudiante ────────────────────
   if (req.method === "DELETE") {
     const { id, tipo } = req.query;
-    if (!id || !tipo) return res.status(400).json({ error: "Faltan id y tipo" });
+    if (!id || !tipo) return res.status(200).json({ error: "Faltan id y tipo" });
 
     if (tipo === "estudiante") {
       // Borrar registros relacionados PRIMERO (respeta FK constraints de Supabase)
@@ -120,18 +120,18 @@ module.exports = async function handler(req, res) {
       await supabase.from("nexus_chats").delete().eq("estudiante_id", String(id));
       // Ahora sí eliminar el estudiante
       const { error } = await supabase.from("estudiantes").delete().eq("id", id);
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) return res.status(200).json({ error: error.message });
     }
 
     if (tipo === "docente") {
       // Liberar estudiantes asignados antes de eliminar docente
       await supabase.from("estudiantes").update({ docente_id: null }).eq("docente_id", String(id));
       const { error } = await supabase.from("docentes").delete().eq("id", id);
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) return res.status(200).json({ error: error.message });
     }
 
     return res.status(200).json({ success: true });
   }
 
-  return res.status(405).json({ error: "Method not allowed" });
+  return res.status(200).json({ error: "Method not allowed" });
 };
