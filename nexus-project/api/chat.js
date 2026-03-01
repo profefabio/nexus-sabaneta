@@ -5,7 +5,7 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") return res.status(200).json({ error: "Method not allowed" });
 
   if (!process.env.ANTHROPIC_API_KEY) {
     // SIEMPRE retornar 200 con campo error — nunca 401/403 para evitar redirect de Vercel
