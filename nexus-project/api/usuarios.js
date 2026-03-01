@@ -114,19 +114,22 @@ module.exports = async function handler(req, res) {
     const { id, tipo } = req.query;
     if (!id || !tipo) return res.status(400).json({ error: "Faltan id y tipo" });
 
-    const tabla = tipo === "docente" ? "docentes" : "estudiantes";
-    const { error } = await supabase.from(tabla).delete().eq("id", id);
-    if (error) return res.status(500).json({ error: error.message });
-
     if (tipo === "estudiante") {
+      // Borrar registros relacionados PRIMERO (respeta FK constraints de Supabase)
       await supabase.from("nexus_progreso").delete().eq("estudiante_id", String(id));
+      await supabase.from("nexus_chats").delete().eq("estudiante_id", String(id));
+      // Ahora sí eliminar el estudiante
+      const { error } = await supabase.from("estudiantes").delete().eq("id", id);
+      if (error) return res.status(500).json({ error: error.message });
     }
-    // Si se elimina un docente, liberar sus estudiantes
+
     if (tipo === "docente") {
-      await supabase.from("estudiantes")
-        .update({ docente_id: null })
-        .eq("docente_id", String(id));
+      // Liberar estudiantes asignados antes de eliminar docente
+      await supabase.from("estudiantes").update({ docente_id: null }).eq("docente_id", String(id));
+      const { error } = await supabase.from("docentes").delete().eq("id", id);
+      if (error) return res.status(500).json({ error: error.message });
     }
+
     return res.status(200).json({ success: true });
   }
 
