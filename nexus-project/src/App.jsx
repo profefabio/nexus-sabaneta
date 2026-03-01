@@ -315,10 +315,8 @@ function DashboardPanel({ user, misiones }) {
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    // Docente filtra por sus misiones; admin ve todo
-    const params = user?.role === "teacher"
-      ? `?docente_id=${user.id}&role=teacher`
-      : `?role=admin`;
+    // Siempre filtrar por docente_id — admin ve sus propias misiones igual que un docente
+    const params = `?docente_id=${user.id}&role=${user.role==="admin"?"admin":"teacher"}`;
     fetch(`/api/stats${params}`)
       .then(r=>r.json())
       .then(d=>{ setStats(d); setLoading(false); })
