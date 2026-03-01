@@ -8,7 +8,7 @@ module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
-    return res.status(500).json({ error: "Faltan variables de entorno" });
+    return res.status(200).json({ error: "Faltan variables de entorno" });
   }
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
       query = query.eq("docente_id", docente_id);
     }
     const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(200).json({ error: error.message });
     // Parsear retos (guardados como JSON string)
     const misiones = (data || []).map(m => ({
       ...m,
@@ -45,38 +45,38 @@ module.exports = async function handler(req, res) {
   // POST — crear misión
   if (req.method === "POST") {
     const { docente_id, docente_nombre, title, icon, color, description, retos, grados } = req.body;
-    if (!docente_id || !title) return res.status(400).json({ error: "Faltan campos requeridos" });
+    if (!docente_id || !title) return res.status(200).json({ error: "Faltan campos requeridos" });
     const { data, error } = await supabase.from("nexus_misiones").insert({
       docente_id, docente_nombre, title, icon, color, description,
       retos: JSON.stringify(retos || []),
       grados: JSON.stringify(grados || []),
       created_at: new Date().toISOString(),
     }).select().single();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(200).json({ error: error.message });
     return res.status(200).json({ mision: { ...data, retos: retos || [], grados: grados || [], glow: color + "59" } });
   }
 
   // PUT — actualizar misión
   if (req.method === "PUT") {
     const { id, docente_id, title, icon, color, description, retos, grados } = req.body;
-    if (!id) return res.status(400).json({ error: "Falta el id de la misión" });
+    if (!id) return res.status(200).json({ error: "Falta el id de la misión" });
     const { data, error } = await supabase.from("nexus_misiones")
       .update({ title, icon, color, description, retos: JSON.stringify(retos || []), grados: JSON.stringify(grados || []) })
       .eq("id", id).eq("docente_id", docente_id).select().single();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(200).json({ error: error.message });
     return res.status(200).json({ mision: { ...data, retos: retos || [], grados: grados || [], glow: color + "59" } });
   }
 
   // DELETE — eliminar misión
   if (req.method === "DELETE") {
     const { id, docente_id, role } = req.query;
-    if (!id) return res.status(400).json({ error: "Falta el id" });
+    if (!id) return res.status(200).json({ error: "Falta el id" });
     let query = supabase.from("nexus_misiones").delete().eq("id", id);
     if (role !== "admin") query = query.eq("docente_id", docente_id);
     const { error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) return res.status(200).json({ error: error.message });
     return res.status(200).json({ success: true });
   }
 
-  return res.status(405).json({ error: "Method not allowed" });
+  return res.status(200).json({ error: "Method not allowed" });
 };
