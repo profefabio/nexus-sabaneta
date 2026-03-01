@@ -663,6 +663,8 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
   const [form, setForm] = useState({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[] });
   const [retoF, setRetoF] = useState({ title:"", desc:"", stars:1 });
   const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false); const [deleting, setDeleting] = useState(null);
+  // Admin: filtro por docente (por defecto mis propias misiones)
+  const [filtroDocente, setFiltroDocente] = useState("yo");
 
   const iniciarNueva = () => { setForm({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[] }); setEditando("nueva"); };
   const iniciarEditar = (m) => { setForm({ id:m.id, title:m.title, icon:m.icon, color:m.color, description:m.description, retos:m.retos.map(r=>({...r})), grados:m.grados||[] }); setEditando(m.id); };
@@ -682,12 +684,55 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
     setMisiones(prev=>prev.filter(m=>m.id!==id)); setDeleting(null);
   };
 
+  // Filtrar misiones según selección del admin
+  const misionesFiltradas = user.role==="admin"
+    ? filtroDocente==="yo"
+      ? misiones.filter(m => String(m.docente_id) === String(user.id))
+      : misiones.filter(m => String(m.docente_id) === filtroDocente)
+    : misiones;
+
+  // Lista de docentes únicos en las misiones (para el selector)
+  const docentesEnMisiones = user.role==="admin"
+    ? [...new Map(misiones.filter(m=>String(m.docente_id)!==String(user.id))
+        .map(m=>[m.docente_id, { id:m.docente_id, nombre:m.docente_nombre||"Docente" }])).values()]
+    : [];
+
   if(!editando) return (
-    <Page title="🗺️ Gestión de Misiones" desc={user.role==="admin"?"Vista de todas las misiones.":"Solo tú ves y editas tus misiones."}>
-      <div style={{ marginBottom:14 }}><Btn onClick={iniciarNueva}>+ Nueva Misión</Btn></div>
+    <Page title="🗺️ Gestión de Misiones" desc="Solo tú ves y editas tus misiones.">
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center", marginBottom:14 }}>
+        <Btn onClick={iniciarNueva}>+ Nueva Misión</Btn>
+        {user.role==="admin" && (
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+            {/* Chip: mis misiones */}
+            <button onClick={()=>setFiltroDocente("yo")} style={{
+              padding:"6px 14px", borderRadius:20, cursor:"pointer", fontSize:12, fontWeight:700,
+              border:`2px solid ${filtroDocente==="yo"?C.accent:C.border}`,
+              background: filtroDocente==="yo"?`${C.accent}22`:"transparent",
+              color: filtroDocente==="yo"?C.accent:C.muted,
+            }}>
+              {filtroDocente==="yo"?"✓ ":""}Mis misiones ({misiones.filter(m=>String(m.docente_id)===String(user.id)).length})
+            </button>
+            {/* Chips por cada docente */}
+            {docentesEnMisiones.map(d=>(
+              <button key={d.id} onClick={()=>setFiltroDocente(String(d.id))} style={{
+                padding:"6px 14px", borderRadius:20, cursor:"pointer", fontSize:12, fontWeight:600,
+                border:`2px solid ${filtroDocente===String(d.id)?"#f97316":C.border}`,
+                background: filtroDocente===String(d.id)?"#f9741622":"transparent",
+                color: filtroDocente===String(d.id)?"#f97316":C.muted,
+              }}>
+                {filtroDocente===String(d.id)?"✓ ":""}{d.nombre.split(" ")[0]} ({misiones.filter(m=>String(m.docente_id)===String(d.id)).length})
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       {loadingM&&<div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando misiones...</div>}
-      {!loadingM&&misiones.length===0&&<div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center" }}>¡Crea tu primera misión! 🚀</div>}
-      {misiones.map(m=>(
+      {!loadingM&&misionesFiltradas.length===0&&(
+        <div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center" }}>
+          {filtroDocente==="yo"?"¡Crea tu primera misión! 🚀":"Este docente aún no tiene misiones."}
+        </div>
+      )}
+      {misionesFiltradas.map(m=>(
         <div key={m.id} style={{ background:C.card, border:`1px solid ${m.color}44`, borderRadius:14, padding:16, marginBottom:12, display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ fontSize:32 }}>{m.icon}</span>
           <div style={{ flex:1, minWidth:0 }}>
@@ -695,7 +740,9 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
             <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{m.description}</div>
             <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>
               {m.retos?.length||0} retos
-              {user.role==="admin"?` · ${m.docente_nombre||"—"}`:""}
+              {user.role==="admin" && filtroDocente!=="yo"
+                ? <span style={{ marginLeft:4, color:"#f97316", fontWeight:600 }}>· {m.docente_nombre||"—"}</span>
+                : ""}
               {(m.grados||[]).length>0
                 ? <span style={{ marginLeft:6, color:m.color||C.accent, fontWeight:700 }}>
                     · Grado(s): {(m.grados||[]).sort((a,b)=>Number(a)-Number(b)).join(", ")}
@@ -705,10 +752,8 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
             </div>
           </div>
           <div style={{ display:"flex", gap:6, flexShrink:0 }}>
-            {(user.role==="admin"||m.docente_id===user.id)&&<>
-              <button onClick={()=>iniciarEditar(m)} style={{ padding:"6px 12px", background:`${C.accent}22`, border:`1px solid ${C.accent}44`, borderRadius:8, color:C.accent, fontSize:11, cursor:"pointer" }}>✏️</button>
-              <button onClick={()=>eliminar(m.id)} disabled={deleting===m.id} style={{ padding:"6px 12px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:11, cursor:"pointer" }}>{deleting===m.id?"...":"🗑️"}</button>
-            </>}
+            <button onClick={()=>iniciarEditar(m)} style={{ padding:"6px 12px", background:`${C.accent}22`, border:`1px solid ${C.accent}44`, borderRadius:8, color:C.accent, fontSize:11, cursor:"pointer" }}>✏️</button>
+            <button onClick={()=>eliminar(m.id)} disabled={deleting===m.id} style={{ padding:"6px 12px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:11, cursor:"pointer" }}>{deleting===m.id?"...":"🗑️"}</button>
           </div>
         </div>
       ))}
