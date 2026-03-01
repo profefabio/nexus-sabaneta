@@ -24,7 +24,6 @@ const callNexus = async (messages, system) => {
 
 const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
   try {
-    // Siempre guardar para el líder/estudiante individual
     await fetch("/api/saveprogress", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
@@ -32,23 +31,39 @@ const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
         nombre_estudiante: user.name,
         grado: user.grade||"", grupo: user.group||"",
         xp_total: xp, nivel, mision_id: misionId||null,
+        equipo: equipo || null,
       }),
     });
-    // Si hay equipo, guardar el mismo XP y nota para cada integrante
-    if (equipo?.integrantes?.length > 0) {
-      await Promise.all(equipo.integrantes.map(m =>
-        fetch("/api/saveprogress", {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({
-            estudiante_id: String(m.id),
-            nombre_estudiante: `${m.nombres} ${m.apellidos}`,
-            grado: user.grade||"", grupo: user.group||"",
-            xp_total: xp, nivel, mision_id: misionId||null,
-          }),
-        })
-      ));
-    }
   } catch(_) {}
+};
+
+// Guardar un mensaje en el historial de chat
+const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equipoNombre=null) => {
+  try {
+    await fetch("/api/savechat", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        estudiante_id: user.id,
+        nombre_estudiante: user.name,
+        mision_id: misionId||null,
+        mision_title: misionTitle||null,
+        role, content,
+        xp_at_time: xp||0,
+        equipo_nombre: equipoNombre||null,
+      }),
+    });
+  } catch(_) {}
+};
+
+// Cargar historial de chat de un estudiante para una misión
+const loadChatHistory = async (estudianteId, misionId) => {
+  try {
+    const params = new URLSearchParams({ estudiante_id: estudianteId });
+    if (misionId) params.append("mision_id", misionId);
+    const res = await fetch("/api/savechat?" + params);
+    const data = await res.json();
+    return (data.msgs || []).map(m => ({ role: m.role, content: m.content }));
+  } catch(_) { return []; }
 };
 
 // ─── Fórmula XP → Nota (escala progresiva original) ─────────────
@@ -392,6 +407,164 @@ function DashboardPanel({ user, misiones }) {
 // ═══════════════════════════════════════════════════════════════
 // PROGRESO PANEL
 // ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// INFORME INDIVIDUAL DE CHAT — para docentes
+// ═══════════════════════════════════════════════════════════════
+function ChatInformePanel({ user }) {
+  const [stats, setStats]       = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [selEst, setSelEst]     = useState(null);   // estudiante seleccionado
+  const [chatData, setChatData] = useState([]);
+  const [loadingChat, setLoadingChat] = useState(false);
+  const [filtroGrado, setFiltroGrado] = useState("todos");
+  const [filtroGrupo, setFiltroGrupo] = useState("todos");
+  const [buscar, setBuscar]     = useState("");
+  const isMobile = useIsMobile();
+
+  useEffect(() => {
+    const params = user.role === "admin" ? "?role=admin" : `?docente_id=${user.id}&role=teacher`;
+    fetch("/api/stats" + params).then(r => r.json()).then(d => {
+      setStats(d); setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [user.id]);
+
+  const verChat = async (est) => {
+    setSelEst(est); setLoadingChat(true); setChatData([]);
+    try {
+      const res = await fetch(`/api/savechat?estudiante_id=${est.estudiante_id}`);
+      const d   = await res.json();
+      setChatData(d.msgs || []);
+    } catch(_) {}
+    setLoadingChat(false);
+  };
+
+  const grados   = stats?.porGrado ? Object.keys(stats.porGrado).sort() : [];
+  let estudiantes = stats?.topEstudiantes || [];
+  if (filtroGrado !== "todos") estudiantes = estudiantes.filter(e => e.grado === filtroGrado);
+  if (filtroGrupo !== "todos") estudiantes = estudiantes.filter(e => e.grupo === filtroGrupo);
+  if (buscar) estudiantes = estudiantes.filter(e =>
+    (e.nombre_estudiante||"").toLowerCase().includes(buscar.toLowerCase())
+  );
+  estudiantes = [...estudiantes].sort((a,b) =>
+    (a.nombre_estudiante||"").localeCompare(b.nombre_estudiante||"", "es")
+  );
+
+  // Agrupar mensajes por misión para el informe
+  const misionesMsgs = {};
+  chatData.forEach(m => {
+    const key = m.mision_title || "Modo libre";
+    if (!misionesMsgs[key]) misionesMsgs[key] = [];
+    misionesMsgs[key].push(m);
+  });
+
+  if (selEst) return (
+    <Page title={`📋 Informe: ${selEst.nombre_estudiante}`}>
+      <button onClick={() => setSelEst(null)} style={{ marginBottom:14, background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13 }}>← Volver a lista</button>
+      <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:14 }}>
+        {[["🎓 Grado", selEst.grado||"—"], ["👥 Grupo", selEst.grupo||"—"],
+          ["⭐ XP Total", selEst.xp_total||0], ["🏆 Nota Final", (selEst.nota_definitiva||1.0).toFixed(1)],
+          ["💬 Mensajes", chatData.length]
+        ].map(([k,v]) => (
+          <div key={k} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:"8px 14px", fontSize:12 }}>
+            <span style={{ color:C.muted }}>{k}: </span>
+            <span style={{ fontWeight:700, color:C.accent }}>{v}</span>
+          </div>
+        ))}
+      </div>
+      {loadingChat && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando chat...</div>}
+      {!loadingChat && chatData.length === 0 && (
+        <div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center" }}>
+          📭 Este estudiante aún no tiene mensajes registrados.
+        </div>
+      )}
+      {!loadingChat && Object.entries(misionesMsgs).map(([mision, msgs]) => (
+        <Card key={mision} title={`🗺️ ${mision} — ${msgs.length} mensajes`}>
+          <div style={{ maxHeight:400, overflowY:"auto", display:"flex", flexDirection:"column", gap:8 }}>
+            {msgs.map((m, i) => (
+              <div key={i} style={{
+                display:"flex", gap:8, alignItems:"flex-start",
+                justifyContent: m.role==="user" ? "flex-end" : "flex-start"
+              }}>
+                {m.role==="assistant" && (
+                  <div style={{ width:24, height:24, borderRadius:"50%", background:`${C.accent}22`,
+                    border:`1px solid ${C.accent}`, display:"flex", alignItems:"center",
+                    justifyContent:"center", fontSize:11, color:C.accent, flexShrink:0 }}>⬡</div>
+                )}
+                <div style={{
+                  background: m.role==="user" ? C.user : C.surface,
+                  border:`1px solid ${m.role==="user" ? C.accent2+"44" : C.border}`,
+                  borderRadius: m.role==="user" ? "12px 3px 12px 12px" : "3px 12px 12px 12px",
+                  padding:"8px 12px", maxWidth:"78%"
+                }}>
+                  <div style={{ fontSize:12, lineHeight:1.6 }}
+                    dangerouslySetInnerHTML={{ __html: (m.content||"").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>") }} />
+                  <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>
+                    {new Date(m.created_at).toLocaleString("es-CO")}
+                    {m.xp_at_time ? ` · ${m.xp_at_time} XP` : ""}
+                    {m.equipo_nombre ? ` · Equipo: ${m.equipo_nombre}` : ""}
+                  </div>
+                </div>
+                {m.role==="user" && (
+                  <div style={{ width:24, height:24, borderRadius:"50%", background:C.user,
+                    border:`1px solid ${C.accent2}`, display:"flex", alignItems:"center",
+                    justifyContent:"center", fontSize:11, flexShrink:0 }}>👤</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      ))}
+    </Page>
+  );
+
+  return (
+    <Page title="💬 Informes de Chat">
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:14 }}>
+        <input style={{ ...inp, maxWidth:220 }} placeholder="Buscar estudiante..." value={buscar} onChange={e=>setBuscar(e.target.value)} />
+        <select style={{ ...inp, width:"auto", padding:"6px 10px", fontSize:12 }} value={filtroGrado} onChange={e=>{setFiltroGrado(e.target.value);setFiltroGrupo("todos");}}>
+          <option value="todos">Todos los grados</option>
+          {grados.map(g=><option key={g} value={g}>Grado {g}</option>)}
+        </select>
+        <select style={{ ...inp, width:"auto", padding:"6px 10px", fontSize:12 }} value={filtroGrupo} onChange={e=>setFiltroGrupo(e.target.value)}>
+          <option value="todos">Todos los grupos</option>
+          {["1","2","3","4"].map(g=><option key={g} value={g}>Grupo {g}</option>)}
+        </select>
+      </div>
+      {loading && <div style={{ color:C.muted }}>⏳ Cargando...</div>}
+      {!loading && estudiantes.length === 0 && <div style={{ color:C.muted }}>Sin estudiantes con este filtro.</div>}
+      <Card title={`🎓 Estudiantes — ${estudiantes.length} resultado${estudiantes.length!==1?"s":""}`}>
+        {estudiantes.map((e, i) => {
+          const nota = e.nota_definitiva || 1.0;
+          return (
+            <div key={i} onClick={() => verChat(e)}
+              style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                background:C.surface, borderRadius:10, marginBottom:7,
+                border:`1px solid ${C.border}`, cursor:"pointer",
+                transition:"border .15s"
+              }}
+              onMouseEnter={el => el.currentTarget.style.borderColor = C.accent+"66"}
+              onMouseLeave={el => el.currentTarget.style.borderColor = C.border}
+            >
+              <div style={{ width:34,height:34,borderRadius:"50%",background:`${C.accent3}22`,
+                border:`1.5px solid ${C.accent3}44`,display:"flex",alignItems:"center",
+                justifyContent:"center",fontSize:16,flexShrink:0 }}>🎓</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:12, fontWeight:700 }}>{e.nombre_estudiante||"—"}</div>
+                <div style={{ fontSize:10, color:C.muted }}>G{e.grado}·Grp{e.grupo||"—"} · {e.xp_total||0} XP</div>
+              </div>
+              <div style={{ textAlign:"right", flexShrink:0 }}>
+                <div style={{ fontSize:14, fontWeight:900, color:notaColor(nota), fontFamily:"'Orbitron',monospace" }}>{nota.toFixed(1)}</div>
+                <div style={{ fontSize:10, color:C.muted }}>Ver chat →</div>
+              </div>
+            </div>
+          );
+        })}
+      </Card>
+    </Page>
+  );
+}
+
 function ProgresoPanel({ user }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -615,11 +788,12 @@ function AdminView({ user, onLogout }) {
   return (
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
-      {id:"missions",icon:"🗺️",label:"Misiones"},{id:"users",icon:"👥",label:"Usuarios"},
+      {id:"missions",icon:"🗺️",label:"Misiones"},{id:"chats",icon:"💬",label:"Informes Chat"},{id:"users",icon:"👥",label:"Usuarios"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
       {tab==="progreso"&&<ProgresoPanel user={user} />}
       {tab==="missions"&&<MisionesPanel user={user} misiones={misiones} setMisiones={setMisiones} loadingM={loadingM} />}
+      {tab==="chats"&&<ChatInformePanel user={user} />}
       {tab==="users"&&<AdminUsuarios />}
     </Layout>
   );
@@ -637,11 +811,12 @@ function TeacherView({ user, onLogout }) {
   return (
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
-      {id:"missions",icon:"🗺️",label:"Mis Misiones"},{id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
+      {id:"missions",icon:"🗺️",label:"Mis Misiones"},{id:"chats",icon:"💬",label:"Informes Chat"},{id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
       {tab==="progreso"&&<ProgresoPanel user={user} />}
       {tab==="missions"&&<MisionesPanel user={user} misiones={misiones} setMisiones={setMisiones} loadingM={loadingM} />}
+      {tab==="chats"&&<ChatInformePanel user={user} />}
       {tab==="config"&&(
         <Page title="⚙️ Configura NEXUS">
           <Card title="📚 Asignatura"><div style={grid2}>
@@ -1047,7 +1222,7 @@ function StudentView({ user, onLogout }) {
                 equipo?`Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes. Líder: ${user.name}. Compañeros: ${equipo.integrantes.map(i=>`${i.nombres} ${i.apellidos}`).join(", ")}. Dirígete al equipo completo e incluye actividades para que todos participen aunque solo uno tenga el dispositivo.`:""
               )}
               userName={equipo?`Equipo ${equipo.nombre}`:user.name}
-              user={user} misionId={mission} equipo={equipo} misionData={missionData||null}
+              user={user} misionId={mission} equipo={equipo} misionData={missionData||null} misionTitle={missionData?.title||null}
             />
           </div>
         </div>
@@ -1217,12 +1392,27 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
 // ═══════════════════════════════════════════════════════════════
 // NEXUS CHAT
 // ═══════════════════════════════════════════════════════════════
-function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData }) {
+function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle }) {
   const isMobile = useIsMobile();
   const welcomeMsg = misionData
     ? `¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, **${userName.split(" ")[0]}**`:""}! 🚀 Soy **NEXUS**.\n\n🗺️ Estamos en la misión: **${misionData.title}**\n${misionData.description?`📋 ${misionData.description}\n`:""}\n¿Qué reto quieres abordar primero? Dime tu número y comenzamos. 🎯`
     : `¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, ${userName.split(" ")[0]}`:""}! 🚀 Soy **NEXUS**. Te guío con pistas para que TÚ descubras el conocimiento.\n\n💬 **Modo libre:** pregunta sobre tecnología.\n🗺️ **O elige una misión** en el menú. 🎯`;
   const [msgs, setMsgs] = useState([{ role:"assistant", content: welcomeMsg }]);
+  const [historialCargado, setHistorialCargado] = useState(false);
+
+  // Cargar historial del chat al montar o cambiar de misión
+  useEffect(() => {
+    if (!user?.id || compact) return;
+    setHistorialCargado(false);
+    loadChatHistory(user.id, misionId).then(hist => {
+      if (hist.length > 0) {
+        // Hay historial: mostrar continuación
+        const continuacion = { role:"assistant", content:`📚 Continuando donde lo dejaste... Tienes **${hist.length} mensajes** anteriores en esta misión. ¿Seguimos?` };
+        setMsgs([{ role:"assistant", content: welcomeMsg }, ...hist, continuacion]);
+      }
+      setHistorialCargado(true);
+    });
+  }, [user?.id, misionId]);
   const [input, setInput] = useState(""); const [loading, setLoading] = useState(false);
   const [xp, setXp] = useState(0); const [xpAnim, setXpAnim] = useState(null);
   const endRef = useRef(null);
@@ -1232,9 +1422,19 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const send = async txt => {
     const t=txt||input.trim(); if(!t||loading) return;
     setInput("");
-    const nm=[...msgs,{role:"user",content:t}]; setMsgs(nm); setLoading(true); addXP(5);
+    const nm=[...msgs,{role:"user",content:t}]; setMsgs(nm); setLoading(true);
+    // Guardar mensaje del estudiante
+    if(user?.id && !compact) {
+      saveChatMsg(user, "user", t, misionId, misionTitle||misionData?.title, xp, equipo?.nombre||null);
+    }
+    addXP(5);
     const reply=await callNexus(nm.map(m=>({role:m.role,content:m.content})),prompt);
     setMsgs(p=>[...p,{role:"assistant",content:reply}]);
+    // Guardar respuesta de NEXUS
+    if(user?.id && !compact) {
+      const xpExtra = /maestría|exacto|correcto|¡así/i.test(reply) ? 20 : 0;
+      saveChatMsg(user, "assistant", reply, misionId, misionTitle||misionData?.title, xp+5+xpExtra, equipo?.nombre||null);
+    }
     if(/maestría|exacto|correcto|¡así/i.test(reply)) addXP(20);
     setLoading(false);
   };
