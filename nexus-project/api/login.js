@@ -11,10 +11,10 @@ module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido" });
+  if (req.method !== "POST") return res.status(200).json({ error: "Método no permitido" });
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
-    return res.status(500).json({ error: "Faltan variables SUPABASE_URL y SUPABASE_SERVICE_KEY en Vercel" });
+    return res.status(200).json({ error: "Faltan variables SUPABASE_URL y SUPABASE_SERVICE_KEY en Vercel" });
   }
 
   const supabase = createClient(
@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
   if (type === "teacher") {
     const { email, password } = req.body;
     if (!email || !password)
-      return res.status(400).json({ error: "Correo y contraseña requeridos" });
+      return res.status(200).json({ error: "Correo y contraseña requeridos" });
 
     const { data: docentes, error } = await supabase
       .from("docentes")
@@ -38,13 +38,13 @@ module.exports = async function handler(req, res) {
       .ilike("email", email.toLowerCase().trim())
       .limit(1);
 
-    if (error) return res.status(500).json({ error: "Error BD: " + error.message });
+    if (error) return res.status(200).json({ error: "Error BD: " + error.message });
     if (!docentes || docentes.length === 0)
-      return res.status(401).json({ error: "Correo no registrado" });
+      return res.status(200).json({ error: "Correo no registrado" });
 
     const doc = docentes[0];
     const isValid = await bcrypt.compare(password, doc.clave);
-    if (!isValid) return res.status(401).json({ error: "Contraseña incorrecta" });
+    if (!isValid) return res.status(200).json({ error: "Contraseña incorrecta" });
 
     const isAdmin = doc.email.toLowerCase() === "fabioortiz37422@sabaneta.edu.co";
     return res.status(200).json({
@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
   if (type === "student") {
     const { nombre, apellido, grado, grupo } = req.body;
     if (!nombre || !apellido || !grado || !grupo)
-      return res.status(400).json({ error: "Completa todos los campos" });
+      return res.status(200).json({ error: "Completa todos los campos" });
 
     // Intentar leer docente_id; si la columna no existe aún en Supabase,
     // el login funciona igual y docente_id quedará null (ver migracion_supabase.sql)
@@ -84,9 +84,9 @@ module.exports = async function handler(req, res) {
       error = fallback.error;
     }
 
-    if (error) return res.status(500).json({ error: "Error BD: " + error.message });
+    if (error) return res.status(200).json({ error: "Error BD: " + error.message });
     if (!estudiantes || estudiantes.length === 0)
-      return res.status(401).json({ error: `No hay estudiantes en grado ${grado} grupo ${grupo}` });
+      return res.status(200).json({ error: `No hay estudiantes en grado ${grado} grupo ${grupo}` });
 
     const nombreInput   = nombre.toLowerCase().trim();
     const apellidoInput = apellido.toLowerCase().trim();
@@ -98,7 +98,7 @@ module.exports = async function handler(req, res) {
     });
 
     if (!est)
-      return res.status(401).json({
+      return res.status(200).json({
         error: `No encontramos "${nombre} ${apellido}" en grado ${grado} grupo ${grupo}. Verifica cómo está escrito tu nombre.`
       });
 
@@ -115,5 +115,5 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  return res.status(400).json({ error: "Tipo de login no válido" });
+  return res.status(200).json({ error: "Tipo de login no válido" });
 };
