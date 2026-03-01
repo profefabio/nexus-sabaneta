@@ -8,7 +8,7 @@ module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
-    return res.status(500).json({ error: "Faltan variables de entorno" });
+    return res.status(200).json({ error: "Faltan variables de entorno" });
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
@@ -145,6 +145,6 @@ module.exports = async function handler(req, res) {
     });
 
   } catch (error) {
-    return res.status(500).json({ error: "Error en stats: " + error.message });
+    return res.status(200).json({ error: "Error en stats: " + error.message });
   }
 };
