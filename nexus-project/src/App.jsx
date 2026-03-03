@@ -1367,7 +1367,7 @@ function StudentView({ user, onLogout }) {
       {id:"progress",icon:"⭐",label:"Mi Progreso"},
     ]} />}>
       {tab==="chat"&&(
-        <div style={{ flex:1, minHeight:0, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ flex:1, minHeight:0, display:"flex", flexDirection:"column", overflow:"hidden", height:"100%" }}>
           <div style={{ padding: isMobile?"6px 12px 0":"14px 22px 0", flexShrink:0 }}>
             {!isMobile && <h1 style={{ ...ptitle, fontSize:22, marginBottom:8 }}>NEXUS · Tu compañero de retos</h1>}
             <div style={{ display:"flex", gap:6, marginBottom: isMobile?6:8, flexWrap:"wrap" }}>
@@ -1382,7 +1382,7 @@ function StudentView({ user, onLogout }) {
               {!mission&&<div style={{ display:"flex", alignItems:"center", gap:4, background:`${C.accent3}15`, border:`1px solid ${C.accent3}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, color:C.accent3 }}>💬 {isMobile?"Libre":"Modo libre"}</div>}
             </div>
           </div>
-          <div style={{ flex:1, overflow:"hidden", minHeight:0, padding: isMobile?"0":"0 22px 22px" }}>
+          <div style={{ flex:1, overflow:"hidden", minHeight:0, padding: isMobile?"0":"0 22px 22px", display:"flex", flexDirection:"column" }}>
             <NexusChat
               prompt={buildMissionPrompt(
                 missionData||null,
@@ -1752,7 +1752,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       )}
 
       {/* ── Mensajes ── */}
-      <div style={{ flex:1, overflowY:"auto", minHeight:0, padding:isMobile?"10px 10px 4px":"16px 14px", display:"flex", flexDirection:"column", gap:10 }}>
+      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", minHeight:0, padding:isMobile?"10px 10px 4px":"16px 14px", display:"flex", flexDirection:"column", gap:10 }}>
         {msgs.map((m,i)=>(
           <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", ...(m.role==="user"?{justifyContent:"flex-end",alignSelf:"flex-end"}:{}), maxWidth:isMobile?"92%":"82%" }}>
             {m.role==="assistant"&&<div style={{ width:28,height:28,borderRadius:"50%",background:`${C.accent}15`,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:C.accent,flexShrink:0 }}>⬡</div>}
@@ -1895,15 +1895,14 @@ function Layout({ sidebar, children }) {
       <main style={{
         flex:1,
         background:C.bg,
+        /* En móvil el nav bottom tiene 60px; en desktop 100vh */
         height: isMobile ? "calc(100vh - 60px)" : "100vh",
         overflow: "hidden",
         display:"flex",
         flexDirection:"column",
+        minHeight:0,
       }}>
-        {/* Wrapper que permite scroll en páginas normales pero clip en el chat */}
-        <div style={{ flex:1, overflow:"auto", minHeight:0, display:"flex", flexDirection:"column" }}>
-          {children}
-        </div>
+        {children}
       </main>
     </div>
   );
@@ -1953,7 +1952,15 @@ function Sidebar({ user, onLogout, tabs, tab, setTab }) {
 function Page({ title, desc, children }) {
   const isMobile = useIsMobile();
   return (
-    <div style={{ padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, overflowY:"auto", height:"100%", boxSizing:"border-box" }}>
+    <div style={{
+      flex:1,
+      overflowY:"auto",
+      overflowX:"hidden",
+      WebkitOverflowScrolling:"touch",   /* iOS momentum scroll */
+      padding: isMobile?"14px 12px 90px":"26px",
+      maxWidth:900,
+      boxSizing:"border-box",
+    }}>
       <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>{title}</h1>
       {desc&&<p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>{desc}</p>}
       {children}
@@ -1979,6 +1986,11 @@ const CSS = `
   input:focus,textarea:focus,select:focus{border-color:#00c8ff55!important;outline:none;}
   select option{background:#0d1526;color:#e2e8f0;}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.6);}}
-  @media(max-width:767px){body{overflow:auto;}}
+  @media(max-width:767px){body{overflow:hidden;height:100%;}}
+  html{height:100%;}
+  /* Barras de scroll personalizadas para móvil */
+  ::-webkit-scrollbar{width:2px;}
+  ::-webkit-scrollbar-thumb{background:#1a3050;border-radius:2px;}
+  ::-webkit-scrollbar-track{background:transparent;}
   @keyframes popIn{0%{transform:scale(0.85);opacity:0;}60%{transform:scale(1.04);}100%{transform:scale(1);opacity:1;}}
 `;
