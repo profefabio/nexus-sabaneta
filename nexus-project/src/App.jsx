@@ -192,19 +192,40 @@ METODOLOGÍA: 1) Pregunta qué sabe, 2) Una pista a la vez, 3) Celebra logros: "
 Siempre en español colombiano, cálido y motivador.`;
 
 // Prompt dinámico basado en los datos reales de la misión seleccionada
-const buildMissionPrompt = (mision, grade="7-11", extraEquipo="") => {
-  if (!mision) return buildPrompt("Tecnología e Informática", grade, extraEquipo);
+const buildMissionPrompt = (mision, grade="7-11", extraEquipo="", interaccionesUsadas=0) => {
+  if (!mision) return buildPrompt("Tecnolog\u00eda e Inform\u00e1tica", grade, extraEquipo);
   const retosTexto = (mision.retos||[]).map((r,i)=>
-    `  Reto ${r.id}: ${r.title} (${"⭐".repeat(r.stars)}) — ${r.desc||"Sin descripción"}`
+    `  Reto ${r.id}: ${r.title} (${"\u2b50".repeat(r.stars)}) \u2014 ${r.desc||"Sin descripci\u00f3n"}`
   ).join("\n");
-  return `Eres NEXUS, compañero de retos académicos para estudiantes de grado ${grade} de la I.E. de Sabaneta, Colombia.
+  const restantes = Math.max(0, 10 - interaccionesUsadas);
+  return `Eres NEXUS, tutor STEM gamificado para estudiantes de grado ${grade} de la I.E. de Sabaneta, Colombia.
 Docente: ${mision.docente_nombre||"Docente"}.
-MISIÓN ACTIVA: "${mision.title}"
-Descripción de la misión: ${mision.description||"Sin descripción"}
-Retos que deben completar:
+MISI\u00d3N ACTIVA: "${mision.title}"
+Descripci\u00f3n: ${mision.description||"Sin descripci\u00f3n"}
+Retos disponibles:
 ${retosTexto||"  Sin retos definidos"}
-INSTRUCCIONES: Guía al estudiante ÚNICAMENTE sobre los temas de esta misión. No des respuestas directas; usa preguntas y pistas para que descubran el conocimiento. Ve reto por reto: pregunta cuál reto quieren abordar, explora sus saberes previos sobre ese reto, y da una pista a la vez. Celebra avances: "¡+20 puntos de maestría! ⭐"${extraEquipo?`\n${extraEquipo}`:""}
-PERSONALIDAD: Animado, motivador, en español colombiano, cálido y cercano.`;
+
+\u2550\u2550 METODOLOG\u00cdA: EJERCICIOS PR\u00c1CTICOS \u2550\u2550
+Cuando el estudiante elija un reto, DEBES:
+1. GENERAR inmediatamente un EJERCICIO PR\u00c1CTICO concreto y creativo: un problema real, c\u00f3digo incompleto para completar, circuito para analizar, caso de estudio, experimento virtual o desaf\u00edo de dise\u00f1o \u2014 siempre relacionado con el reto elegido y con contexto colombiano si es posible.
+2. Esperar la respuesta del estudiante.
+3. EVALUAR la respuesta: si es incorrecta, dar UNA pista espec\u00edfica y reformular. Si mejora, celebrar y avanzar.
+4. Al final de CADA respuesta tuya, indicar el XP ganado exactamente as\u00ed (sin variaciones):
+   - Respuesta excelente / completa  \u2192 **+25 XP \u2b50\u2b50\u2b50 \u00a1Maestr\u00eda!**
+   - Respuesta buena / parcial       \u2192 **+15 XP \u2b50\u2b50 \u00a1Bien hecho!**
+   - Respuesta b\u00e1sica / solo intento \u2192 **+5 XP \u2b50 \u00a1Sigue intentando!**
+
+\u2550\u2550 CONTADOR DE INTERACCIONES \u2550\u2550
+Interacciones usadas en este reto: ${interaccionesUsadas}/10. Quedan: ${restantes}.
+${restantes <= 3 && restantes > 0 ? `\u26a0\ufe0f QUEDAN SOLO ${restantes} INTERACCIONES. Orienta al estudiante hacia la soluci\u00f3n con pistas m\u00e1s directas.` : ""}
+${interaccionesUsadas >= 9 ? "\ud83c\udfc1 \u00daLTIMA INTERACCI\u00d3N: Haz una evaluaci\u00f3n final del desempe\u00f1o, felicita al estudiante y resume lo aprendido." : ""}
+
+\u2550\u2550 REGLAS \u2550\u2550
+- NUNCA des la respuesta completa directamente. Usa preguntas socr\u00e1ticas y pistas graduales.
+- Las pistas deben ser progresivamente m\u00e1s espec\u00edficas a medida que el estudiante lo necesite.
+- Si el estudiante mejora su respuesta respecto a la anterior, rec\u00f3nocelo expl\u00edcitamente.
+- Siempre en espa\u00f1ol colombiano, c\u00e1lido, motivador y cercano. \ud83d\ude80
+${extraEquipo?`\n${extraEquipo}`:""}`;
 };
 
 const C = { bg:"#070d1a",surface:"#0d1526",card:"#111e33",border:"#1a3050",accent:"#00c8ff",accent2:"#8b5cf6",accent3:"#10d98a",text:"#e2e8f0",muted:"#4a6080",user:"#162040" };
@@ -1306,10 +1327,10 @@ function StudentProgressCard({ user }) {
       </div>
 
       <div style={{ marginTop:12, padding:"10px 14px", background:`${C.accent2}10`, borderRadius:10, border:`1px solid ${C.accent2}22`, fontSize:11, color:C.muted, lineHeight:1.7 }}>
-        💡 Cada interacción con NEXUS suma <strong style={{color:C.accent3}}>+5 XP</strong>.
-        Respuestas correctas suman <strong style={{color:C.accent3}}>+20 XP</strong>.
-        Con <strong style={{color:C.accent}}>250 XP</strong> alcanzas nota <strong style={{color:"#10d98a"}}>5.0</strong>.
-      </div>
+        💡 Cada reto tiene <strong style={{color:C.accent3}}>10 interacciones</strong>.
+        Respuestas excelentes: <strong style={{color:C.accent3}}>+25 XP ⭐⭐⭐</strong> · Buenas: <strong style={{color:C.accent3}}>+15 XP ⭐⭐</strong>.
+        Con <strong style={{color:C.accent}}>250 XP</strong> (10 respuestas perfectas) alcanzas nota <strong style={{color:"#10d98a"}}>5.0</strong>.
+        </div>
     </div>
   );
 }
@@ -1346,21 +1367,22 @@ function StudentView({ user, onLogout }) {
       {id:"progress",icon:"⭐",label:"Mi Progreso"},
     ]} />}>
       {tab==="chat"&&(
-        <div style={{ height: isMobile ? "calc(100vh - 70px)" : "100%", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-          <div style={{ padding: isMobile?"10px 14px 0":"14px 22px 0", flexShrink:0 }}>
-            <h1 style={{ ...ptitle, fontSize: isMobile?16:22, marginBottom:8 }}>NEXUS · Tu compañero de retos</h1>
-            <div style={{ display:"flex", gap:7, marginBottom:8, flexWrap:"wrap" }}>
-              {mission&&<div style={{ display:"flex", alignItems:"center", gap:7, background:C.card, border:`1px solid ${missionData?.color}44`, borderRadius:10, padding:"6px 10px", fontSize:11, flex:1 }}>
-                <span>{missionData?.icon}</span><span>Misión: <strong>{missionData?.title}</strong></span>
-                <button style={{ marginLeft:"auto", background:"none", border:"none", color:C.muted, cursor:"pointer" }} onClick={()=>setMission(null)}>✕</button>
+        <div style={{ flex:1, minHeight:0, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ padding: isMobile?"6px 12px 0":"14px 22px 0", flexShrink:0 }}>
+            {!isMobile && <h1 style={{ ...ptitle, fontSize:22, marginBottom:8 }}>NEXUS · Tu compañero de retos</h1>}
+            <div style={{ display:"flex", gap:6, marginBottom: isMobile?6:8, flexWrap:"wrap" }}>
+              {mission&&<div style={{ display:"flex", alignItems:"center", gap:6, background:C.card, border:`1px solid ${missionData?.color}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, flex:1, minWidth:0 }}>
+                <span style={{flexShrink:0}}>{missionData?.icon}</span>
+                <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>Misión: <strong>{missionData?.title}</strong></span>
+                <button style={{ marginLeft:4, background:"none", border:"none", color:C.muted, cursor:"pointer", flexShrink:0, fontSize:14, lineHeight:1 }} onClick={()=>setMission(null)}>✕</button>
               </div>}
-              {equipo&&<div style={{ display:"flex", alignItems:"center", gap:6, background:`${C.accent2}15`, border:`1px solid ${C.accent2}44`, borderRadius:10, padding:"6px 10px", fontSize:11, color:C.accent2, cursor:"pointer" }} onClick={()=>setShowEquipo(true)}>
-                👥 {equipo.nombre} ({equipo.integrantes.length+1})
+              {equipo&&<div style={{ display:"flex", alignItems:"center", gap:5, background:`${C.accent2}15`, border:`1px solid ${C.accent2}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, color:C.accent2, cursor:"pointer", flexShrink:0 }} onClick={()=>setShowEquipo(true)}>
+                👥 {isMobile?equipo.nombre:`${equipo.nombre} (${equipo.integrantes.length+1})`}
               </div>}
-              {!mission&&<div style={{ display:"flex", alignItems:"center", gap:5, background:`${C.accent3}15`, border:`1px solid ${C.accent3}44`, borderRadius:10, padding:"6px 10px", fontSize:11, color:C.accent3 }}>💬 Modo libre</div>}
+              {!mission&&<div style={{ display:"flex", alignItems:"center", gap:4, background:`${C.accent3}15`, border:`1px solid ${C.accent3}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, color:C.accent3 }}>💬 {isMobile?"Libre":"Modo libre"}</div>}
             </div>
           </div>
-          <div style={{ flex:1, overflow:"hidden", padding: isMobile?"0 0 0":"0 22px 22px" }}>
+          <div style={{ flex:1, overflow:"hidden", minHeight:0, padding: isMobile?"0":"0 22px 22px" }}>
             <NexusChat
               prompt={buildMissionPrompt(
                 missionData||null,
@@ -1536,93 +1558,302 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// NEXUS CHAT
+// NEXUS CHAT — Ejercicios prácticos · Límite 10 interacciones
+//              Graduación progresiva · Protección anti-copia
 // ═══════════════════════════════════════════════════════════════
 function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle }) {
   const isMobile = useIsMobile();
+
   const welcomeMsg = misionData
-    ? `¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, **${userName.split(" ")[0]}**`:""}! 🚀 Soy **NEXUS**.\n\n🗺️ Estamos en la misión: **${misionData.title}**\n${misionData.description?`📋 ${misionData.description}\n`:""}\n¿Qué reto quieres abordar primero? Dime tu número y comenzamos. 🎯`
+    ? `¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, **${userName.split(" ")[0]}**`:""}! 🚀 Soy **NEXUS**.\n\n🗺️ Misión activa: **${misionData.title}**\n${misionData.description?`📋 ${misionData.description}\n`:""}\n¿Qué reto quieres trabajar primero? Dime el número y te generaré un **ejercicio práctico** diseñado para ese tema. 🎯\n\n⏱️ Tienes **10 interacciones** para completar el reto — ¡cada respuesta que des debe ser mejor que la anterior!`
     : `¡Bienvenido${equipo?`, equipo **${equipo.nombre}**`:userName?`, ${userName.split(" ")[0]}`:""}! 🚀 Soy **NEXUS**. Te guío con pistas para que TÚ descubras el conocimiento.\n\n💬 **Modo libre:** pregunta sobre tecnología.\n🗺️ **O elige una misión** en el menú. 🎯`;
+
   const [msgs, setMsgs] = useState([{ role:"assistant", content: welcomeMsg }]);
   const [historialCargado, setHistorialCargado] = useState(false);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [xp, setXp] = useState(0);
+  const [xpAnim, setXpAnim] = useState(null);
+  const endRef = useRef(null);
 
-  // Cargar historial del chat al montar o cambiar de misión
+  // ── Contador de interacciones — máximo 10 por reto ────────────
+  const [interactionCount, setInteractionCount] = useState(0);
+  const MAX_INT = 10;
+
+  // ── Protección anti-copia/pegado ──────────────────────────────
+  const [pasteCount, setPasteCount] = useState(0);
+  const [showPasteWarning, setShowPasteWarning] = useState(false);
+  const [misionAnulada, setMisionAnulada] = useState(false);
+
+  const retoCompleto = interactionCount >= MAX_INT;
+
+  // Reset al cambiar de misión
+  useEffect(() => {
+    setInteractionCount(0);
+    setXp(0);
+    setMisionAnulada(false);
+    setPasteCount(0);
+    setShowPasteWarning(false);
+    setMsgs([{ role:"assistant", content: welcomeMsg }]);
+  }, [misionId]); // eslint-disable-line
+
+  // Cargar historial previo
   useEffect(() => {
     if (!user?.id || compact) return;
     setHistorialCargado(false);
     loadChatHistory(user.id, misionId).then(hist => {
       if (hist.length > 0) {
-        // Hay historial: mostrar continuación
-        const continuacion = { role:"assistant", content:`📚 Continuando donde lo dejaste... Tienes **${hist.length} mensajes** anteriores en esta misión. ¿Seguimos?` };
-        setMsgs([{ role:"assistant", content: welcomeMsg }, ...hist, continuacion]);
+        const cont = { role:"assistant", content:`📚 Continuando donde lo dejaste... **${hist.length} mensajes** previos en esta misión. ¿Seguimos? 💪` };
+        setMsgs([{ role:"assistant", content: welcomeMsg }, ...hist, cont]);
+        const prevInteractions = hist.filter(m => m.role === "user").length;
+        setInteractionCount(Math.min(prevInteractions, MAX_INT));
       }
       setHistorialCargado(true);
     });
-  }, [user?.id, misionId]);
-  const [input, setInput] = useState(""); const [loading, setLoading] = useState(false);
-  const [xp, setXp] = useState(0); const [xpAnim, setXpAnim] = useState(null);
-  const endRef = useRef(null);
-  useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs]);
-  const lv=Math.floor(xp/50)+1; const pct=(xp%50)/50*100;
-  const addXP = useCallback((n)=>{ setXp(prev=>{ const nx=prev+n; if(user?.id) saveProgress(user,nx,Math.floor(nx/50)+1,misionId,equipo); return nx; }); setXpAnim(n); setTimeout(()=>setXpAnim(null),2000); },[user,misionId,equipo]);
-  const send = async txt => {
-    const t=txt||input.trim(); if(!t||loading) return;
-    setInput("");
-    const nm=[...msgs,{role:"user",content:t}]; setMsgs(nm); setLoading(true);
-    try {
-      // Guardar mensaje del estudiante
-      if(user?.id && !compact) {
-        saveChatMsg(user, "user", t, misionId, misionTitle||misionData?.title, xp, equipo?.nombre||null);
+  }, [user?.id, misionId]); // eslint-disable-line
+
+  useEffect(() => { endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
+
+  // ── Prompt con contador de interacciones actualizado ──────────
+  const buildCurrentPrompt = (count) => {
+    if (misionData) {
+      const equipoTxt = equipo
+        ? `Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes. Líder: ${userName}. Compañeros: ${equipo.integrantes.map(i=>`${i.nombres} ${i.apellidos}`).join(", ")}. Dirígete al equipo e incluye actividades para todos aunque solo uno tenga el dispositivo.`
+        : "";
+      return buildMissionPrompt(misionData, user?.grade||"7-11", equipoTxt, count);
+    }
+    return prompt;
+  };
+
+  // ── XP ─────────────────────────────────────────────────────────
+  const lv  = Math.floor(xp/50)+1;
+  const pct = (xp%50)/50*100;
+
+  const addXP = (n) => {
+    setXp(prev => {
+      const nx = prev + n;
+      if (user?.id && !compact) saveProgress(user, nx, Math.floor(nx/50)+1, misionId, equipo);
+      return nx;
+    });
+    setXpAnim(n);
+    setTimeout(() => setXpAnim(null), 2000);
+  };
+
+  // ── Detección de copia/pegado ─────────────────────────────────
+  const handlePaste = (e) => {
+    if (compact) return;
+    e.preventDefault();
+    const newCount = pasteCount + 1;
+    setPasteCount(newCount);
+    if (newCount === 1) {
+      setShowPasteWarning(true);
+    } else {
+      setShowPasteWarning(false);
+      setMisionAnulada(true);
+      // Guardar nota 1.0 (XP = 0)
+      if (user?.id) {
+        fetch("/api/saveprogress", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            estudiante_id: user.id, nombre_estudiante: user.name,
+            grado: user.grade||"", grupo: user.group||"",
+            xp_total: 0, nivel: 1, mision_id: misionId||null,
+          })
+        }).catch(()=>{});
       }
-      addXP(5);
-      const reply=await callNexus(nm.map(m=>({role:m.role,content:m.content})),prompt);
-      setMsgs(p=>[...p,{role:"assistant",content:reply}]);
-      // Solo guardar en BD si no es un mensaje de error
-      if(user?.id && !compact && !reply.startsWith("⚠️")) {
-        const xpExtra = /maestría|exacto|correcto|¡así/i.test(reply) ? 20 : 0;
-        saveChatMsg(user, "assistant", reply, misionId, misionTitle||misionData?.title, xp+5+xpExtra, equipo?.nombre||null);
-      }
-      if(/maestría|exacto|correcto|¡así/i.test(reply)) addXP(20);
-    } catch(err) {
-      // Garantizar que el chat nunca se queda colgado
-      setMsgs(p=>[...p,{role:"assistant",content:"⚠️ Ocurrió un error inesperado. Intenta enviar tu mensaje de nuevo."}]);
-    } finally {
-      setLoading(false); // SIEMPRE desbloquear el chat
     }
   };
+
+  // ── Enviar mensaje ────────────────────────────────────────────
+  const send = async (txt) => {
+    const t = txt || input.trim();
+    if (!t || loading || misionAnulada || retoCompleto) return;
+    setInput("");
+
+    const newCount = interactionCount + 1;
+    setInteractionCount(newCount);
+
+    const nm = [...msgs, {role:"user", content:t}];
+    setMsgs(nm);
+    setLoading(true);
+
+    try {
+      if (user?.id && !compact) {
+        saveChatMsg(user, "user", t, misionId, misionTitle||misionData?.title, xp, equipo?.nombre||null);
+      }
+
+      const currentPrompt = buildCurrentPrompt(newCount);
+      // Limitar historial a últimos 50 mensajes para evitar tokens excesivos
+      const validMsgs = nm.slice(-50).map(m => ({role:m.role, content:m.content}));
+      const reply = await callNexus(validMsgs, currentPrompt);
+
+      // Si llegó a la interacción 10, agregar cierre automático
+      const esFinal = newCount >= MAX_INT;
+      const notaActual = xpToNota(xp);
+      const replyFinal = esFinal && !reply.toLowerCase().includes("evaluación final") && !reply.includes("10/10")
+        ? reply + `\n\n---\n🏁 **Has completado las 10 interacciones de este reto.**\nTu nota en esta sesión: **${notaActual.toFixed(1)}** · ${xp} XP acumulados.\nPuede elegir otro reto en el menú 🗺️ para seguir progresando.`
+        : reply;
+
+      setMsgs(p => [...p, {role:"assistant", content:replyFinal}]);
+
+      // Calcular XP según señal de NEXUS (25/15/5)
+      let xpGanado = 5;
+      if (/25 XP|\+25|⭐⭐⭐|¡Maestr|maestr/i.test(reply))          xpGanado = 25;
+      else if (/15 XP|\+15|⭐⭐|¡Bien hecho|exacto|correcto|¡así/i.test(reply)) xpGanado = 15;
+      addXP(xpGanado);
+
+      if (user?.id && !compact && !reply.startsWith("⚠️")) {
+        saveChatMsg(user, "assistant", replyFinal, misionId, misionTitle||misionData?.title, xp+xpGanado, equipo?.nombre||null);
+      }
+    } catch(err) {
+      setMsgs(p => [...p, {role:"assistant", content:"⚠️ Error inesperado. Intenta de nuevo."}]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Sugerencias basadas en los retos de la misión
   const SUGS = misionData?.retos?.length > 0
-    ? misionData.retos.slice(0,4).map(r => `Reto ${r.id}: ${r.title}`)
+    ? misionData.retos.slice(0,4).map(r => `Quiero el ejercicio del Reto ${r.id}: ${r.title}`)
     : ["¿Cómo funciona una Radio AM?","¿Qué es la Ley de Ohm?","¿Cómo programo un servo?","¿Para qué sirve el transistor?"];
+
+  const progReto = Math.round((interactionCount / MAX_INT) * 100);
+  const colReto  = progReto >= 80 ? "#10d98a" : progReto >= 50 ? "#f59e0b" : C.accent;
+
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:compact?400:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius: isMobile?0:16, overflow:"hidden" }}>
-      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", background:C.surface, borderBottom:`1px solid ${C.border}`, position:"relative" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:compact?400:undefined, flex:compact?undefined:1, minHeight:compact?undefined:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:isMobile?0:16, overflow:"hidden", position:"relative" }}>
+
+      {/* ── Header: nivel XP + nota ── */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, padding:isMobile?"5px 10px":"7px 14px", background:C.surface, borderBottom:`1px solid ${C.border}`, position:"relative", flexShrink:0 }}>
         <span style={{ fontSize:9, fontFamily:"'Orbitron',monospace", color:C.accent, fontWeight:700 }}>NVL {lv}</span>
-        <div style={{ flex:1, height:4, background:C.border, borderRadius:2 }}><div style={{ height:"100%", background:`linear-gradient(90deg,${C.accent},${C.accent2})`, width:`${pct}%`, borderRadius:2, transition:"width .5s" }} /></div>
+        <div style={{ flex:1, height:4, background:C.border, borderRadius:2 }}>
+          <div style={{ height:"100%", background:`linear-gradient(90deg,${C.accent},${C.accent2})`, width:`${pct}%`, borderRadius:2, transition:"width .5s" }} />
+        </div>
         <span style={{ fontSize:9, color:C.muted, fontFamily:"'Orbitron',monospace" }}>{xp} XP</span>
         {user&&<span style={{ fontSize:10, fontWeight:800, color:notaColor(xpToNota(xp)), fontFamily:"'Orbitron',monospace", background:C.card, padding:"1px 7px", borderRadius:6, border:`1px solid ${notaColor(xpToNota(xp))}55` }}>▶ {xpToNota(xp).toFixed(1)}</span>}
         {xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:11, color:C.accent3, fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:`1px solid ${C.accent3}` }}>+{xpAnim} XP ✨</span>}
       </div>
-      <div style={{ flex:1, overflowY:"auto", padding: isMobile?"12px 10px":"16px 14px", display:"flex", flexDirection:"column", gap:12 }}>
+
+      {/* ── Barra de progreso del reto (interacciones) ── */}
+      {misionData && !compact && (
+        <div style={{ padding:isMobile?"3px 10px 4px":"5px 14px 7px", background:`${colReto}08`, borderBottom:`1px solid ${colReto}22`, flexShrink:0 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:isMobile?2:4 }}>
+            <span style={{ fontSize:isMobile?9:10, color:colReto, fontWeight:700 }}>
+              {retoCompleto ? "🏁 Completado 10/10" : `⚡ ${interactionCount}/${MAX_INT} interacciones`}
+            </span>
+            <span style={{ fontSize:isMobile?9:10, color:C.muted, fontFamily:"'Orbitron',monospace" }}>
+              {retoCompleto ? `Nota: ${xpToNota(xp).toFixed(1)}` : `${MAX_INT - interactionCount} quedan`}
+            </span>
+          </div>
+          <div style={{ height:isMobile?3:5, background:C.border, borderRadius:3 }}>
+            <div style={{ height:"100%", width:`${progReto}%`, background:`linear-gradient(90deg,${colReto},${C.accent2})`, borderRadius:3, transition:"width .4s ease" }} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Mensajes ── */}
+      <div style={{ flex:1, overflowY:"auto", minHeight:0, padding:isMobile?"10px 10px 4px":"16px 14px", display:"flex", flexDirection:"column", gap:10 }}>
         {msgs.map((m,i)=>(
-          <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", ...(m.role==="user"?{justifyContent:"flex-end",alignSelf:"flex-end"}:{}), maxWidth: isMobile?"92%":"82%" }}>
+          <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", ...(m.role==="user"?{justifyContent:"flex-end",alignSelf:"flex-end"}:{}), maxWidth:isMobile?"92%":"82%" }}>
             {m.role==="assistant"&&<div style={{ width:28,height:28,borderRadius:"50%",background:`${C.accent}15`,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:C.accent,flexShrink:0 }}>⬡</div>}
-            <div style={{ background:m.role==="user"?C.user:C.surface, border:`1px solid ${m.role==="user"?C.accent2+"44":C.border}`, borderRadius:m.role==="user"?"12px 3px 12px 12px":"3px 12px 12px 12px", padding: isMobile?"10px 12px":"11px 14px" }}>
-              <div dangerouslySetInnerHTML={{ __html:m.content.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>") }} style={{ fontSize: isMobile?13:13, lineHeight:1.7 }} />
+            <div style={{ background:m.role==="user"?C.user:C.surface, border:`1px solid ${m.role==="user"?C.accent2+"44":C.border}`, borderRadius:m.role==="user"?"12px 3px 12px 12px":"3px 12px 12px 12px", padding:isMobile?"10px 12px":"11px 14px" }}>
+              <div dangerouslySetInnerHTML={{ __html:m.content.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>") }} style={{ fontSize:isMobile?13:13, lineHeight:1.7 }} />
             </div>
             {m.role==="user"&&<div style={{ width:28,height:28,borderRadius:"50%",background:C.user,border:`1.5px solid ${C.accent2}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0 }}>{equipo?"👥":"👤"}</div>}
           </div>
         ))}
         {loading&&<div style={{ display:"flex", gap:8, maxWidth:"82%" }}><div style={{ width:28,height:28,borderRadius:"50%",background:`${C.accent}15`,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:C.accent }}>⬡</div><div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:"3px 12px 12px 12px",padding:"12px 14px" }}><div style={{ display:"flex", gap:4 }}>{[0,150,300].map(d=><span key={d} style={{ width:6,height:6,borderRadius:"50%",background:C.accent,animation:"pulse 1.2s ease-in-out infinite",display:"inline-block",animationDelay:`${d}ms` }} />)}</div></div></div>}
-        {msgs.length===1&&!loading&&<div><div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>💡 Sugerencias:</div><div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>{SUGS.map((q,i)=><button key={i} style={{ background:"transparent",border:`1px solid ${C.border}`,color:C.accent,padding: isMobile?"6px 10px":"6px 12px",borderRadius:20,fontSize:11,cursor:"pointer",fontFamily:"inherit" }} onClick={()=>send(q)}>{q}</button>)}</div></div>}
+        {msgs.length===1&&!loading&&<div><div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>💡 Sugerencias:</div><div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>{SUGS.map((q,i)=><button key={i} style={{ background:"transparent",border:`1px solid ${C.border}`,color:C.accent,padding:isMobile?"6px 10px":"6px 12px",borderRadius:20,fontSize:11,cursor:"pointer",fontFamily:"inherit" }} onClick={()=>send(q)}>{q}</button>)}</div></div>}
+
+        {/* Banner de reto completado */}
+        {retoCompleto && !misionAnulada && (
+          <div style={{ background:`${C.accent3}15`, border:`2px solid ${C.accent3}`, borderRadius:14, padding:"18px 20px", textAlign:"center", margin:"8px 0" }}>
+            <div style={{ fontSize:36, marginBottom:8 }}>🏆</div>
+            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:13, color:C.accent3, fontWeight:900, marginBottom:8 }}>¡Reto Completado! — 10/10</div>
+            <div style={{ fontSize:40, fontWeight:900, fontFamily:"'Orbitron',monospace", color:notaColor(xpToNota(xp)), marginBottom:4 }}>{xpToNota(xp).toFixed(1)}</div>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>{xp} XP · {msgs.filter(m=>m.role==="user").length} respuestas</div>
+            <div style={{ fontSize:12, color:C.accent }}>Elige otro reto en 🗺️ Misiones para continuar</div>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
-      <div style={{ display:"flex", gap:7, padding: isMobile?"10px 10px 14px":"11px 12px", borderTop:`1px solid ${C.border}`, background:C.surface, alignItems:"flex-end" }}>
-        <textarea style={{ flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding: isMobile?"9px 11px":"9px 12px",color:C.text,fontSize:13,resize:"none",fontFamily:"inherit",outline:"none",maxHeight:80 }} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); }}} placeholder={isMobile?"Escribe aquí...":"Pregunta lo que quieras... (Enter para enviar)"} rows={isMobile?2:1} />
-        <button style={{ width:36,height:36,borderRadius:9,background:`linear-gradient(135deg,${C.accent},${C.accent2})`,border:"none",color:"#fff",fontSize:14,cursor:"pointer",opacity:loading||!input.trim()?0.4:1,flexShrink:0 }} onClick={()=>send()} disabled={loading||!input.trim()}>➤</button>
+
+      {/* ── Input ── */}
+      <div style={{ display:"flex", gap:6, padding:isMobile?"7px 8px 10px":"11px 12px", borderTop:`1px solid ${C.border}`, background:C.surface, alignItems:"flex-end", flexShrink:0 }}>
+        <textarea
+          style={{ flex:1, background:(retoCompleto||misionAnulada)?"#0a0a0a":C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:isMobile?"9px 11px":"9px 12px", color:(retoCompleto||misionAnulada)?C.muted:C.text, fontSize:13, resize:"none", fontFamily:"inherit", outline:"none", maxHeight:80 }}
+          value={input}
+          onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); }}}
+          onPaste={handlePaste}
+          placeholder={misionAnulada?"🚫 Misión anulada":retoCompleto?"🏁 Reto completado — elige otro reto":isMobile?"Escribe aquí...":"Escribe tu respuesta... (Enter para enviar)"}
+          disabled={retoCompleto || misionAnulada}
+          rows={1}
+        />
+        <button
+          style={{ width:36,height:36,borderRadius:9,background:`linear-gradient(135deg,${C.accent},${C.accent2})`,border:"none",color:"#fff",fontSize:14,cursor:"pointer",opacity:(loading||!input.trim()||retoCompleto||misionAnulada)?0.4:1,flexShrink:0 }}
+          onClick={()=>send()}
+          disabled={loading||!input.trim()||retoCompleto||misionAnulada}
+        >➤</button>
       </div>
+
+      {/* ╔══════════════════════════════════════════════╗
+          ║  MODAL 1 — Advertencia de Copia (1er intento) ║
+          ╚══════════════════════════════════════════════╝ */}
+      {showPasteWarning && !misionAnulada && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.82)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:"#1a1200", border:"2px solid #f59e0b", borderRadius:18, padding:"30px 26px", maxWidth:370, width:"100%", textAlign:"center", boxShadow:"0 0 40px #f59e0b33", animation:"popIn .25s ease" }}>
+            <div style={{ fontSize:52, marginBottom:10 }}>⚠️</div>
+            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:15, color:"#f59e0b", fontWeight:900, marginBottom:12, letterSpacing:1 }}>
+              Advertencia de Copia
+            </div>
+            <div style={{ fontSize:13, color:"#fde68a", lineHeight:1.9, marginBottom:14 }}>
+              Se detectó un intento de <strong>copiar y pegar</strong> texto en el chat.
+            </div>
+            <div style={{ fontSize:14, fontWeight:800, color:"#f97316", padding:"12px 16px", background:"#2a1500", borderRadius:12, marginBottom:18, border:"1px solid #f9731633" }}>
+              ⚠️ Próxima vez se anulará la misión
+            </div>
+            <div style={{ fontSize:11, color:"#92400e", marginBottom:20, lineHeight:1.6 }}>
+              Las respuestas deben ser tuyas. Demuestra tu conocimiento. 💪
+            </div>
+            <button
+              onClick={()=>setShowPasteWarning(false)}
+              style={{ padding:"12px 30px", background:"linear-gradient(135deg,#f59e0b,#f97316)", border:"none", borderRadius:12, color:"#fff", fontWeight:800, fontSize:14, cursor:"pointer" }}
+            >
+              Entendido ✊
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ╔═════════════════════════════════╗
+          ║  MODAL 2 — Misión Anulada (rojo)  ║
+          ╚═════════════════════════════════╝ */}
+      {misionAnulada && (
+        <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.93)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:"#150000", border:"2px solid #ef4444", borderRadius:18, padding:"34px 26px 28px", maxWidth:390, width:"100%", textAlign:"center", boxShadow:"0 0 60px #ef444466", animation:"popIn .3s ease" }}>
+            <div style={{ fontSize:56, marginBottom:10 }}>🚫</div>
+            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:16, color:"#ef4444", fontWeight:900, marginBottom:14, letterSpacing:3 }}>
+              MISIÓN ANULADA
+            </div>
+            <div style={{ fontSize:13, color:"#fca5a5", lineHeight:1.9, marginBottom:10 }}>
+              Se detectó un <strong>segundo intento de copiar y pegar</strong> texto en el chat de NEXUS.
+            </div>
+            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:52, fontWeight:900, color:"#ef4444", margin:"8px 0 4px", textShadow:"0 0 20px #ef4444" }}>1.0</div>
+            <div style={{ fontSize:13, color:"#fca5a5", marginBottom:20, fontWeight:600 }}>
+              Nota definitiva por integridad académica
+            </div>
+            <div style={{ fontSize:11, color:"#7f1d1d", padding:"14px 16px", background:"#2a0000", borderRadius:12, lineHeight:1.8, border:"1px solid #3f0000" }}>
+              💡 El conocimiento que construyes tú mismo es el que de verdad te pertenece.<br/>
+              <span style={{ color:"#991b1b" }}>El docente puede ver el registro completo de esta sesión.</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ═══════════════════════════════════════════════════════════════
 // MISSION MAP
@@ -1658,7 +1889,24 @@ function MissionMap({ misiones, onSelect }) {
 // ── Shared components ──
 function Layout({ sidebar, children }) {
   const isMobile = useIsMobile();
-  return <div style={{ display:"flex", height:"100vh", position:"relative", zIndex:5 }}>{sidebar}<main style={{ flex:1, overflow:"auto", background:C.bg, height: isMobile ? "calc(100vh - 70px)" : "100vh", marginBottom: isMobile ? 70 : 0 }}>{children}</main></div>;
+  return (
+    <div style={{ display:"flex", height:"100vh", position:"relative", zIndex:5 }}>
+      {sidebar}
+      <main style={{
+        flex:1,
+        background:C.bg,
+        height: isMobile ? "calc(100vh - 60px)" : "100vh",
+        overflow: "hidden",
+        display:"flex",
+        flexDirection:"column",
+      }}>
+        {/* Wrapper que permite scroll en páginas normales pero clip en el chat */}
+        <div style={{ flex:1, overflow:"auto", minHeight:0, display:"flex", flexDirection:"column" }}>
+          {children}
+        </div>
+      </main>
+    </div>
+  );
 }
 
 function Sidebar({ user, onLogout, tabs, tab, setTab }) {
@@ -1704,7 +1952,13 @@ function Sidebar({ user, onLogout, tabs, tab, setTab }) {
 
 function Page({ title, desc, children }) {
   const isMobile = useIsMobile();
-  return <div style={{ padding: isMobile?"16px 14px 80px":"26px", maxWidth:900 }}><h1 style={{ ...ptitle, fontSize: isMobile?18:22 }}>{title}</h1>{desc&&<p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>{desc}</p>}{children}</div>;
+  return (
+    <div style={{ padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, overflowY:"auto", height:"100%", boxSizing:"border-box" }}>
+      <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>{title}</h1>
+      {desc&&<p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>{desc}</p>}
+      {children}
+    </div>
+  );
 }
 function Card({ title, children }) { return <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:14 }}><div style={{ fontSize:14,fontWeight:700,marginBottom:12 }}>{title}</div>{children}</div>; }
 function InfoBox({ title, children }) { return <div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginTop:14 }}><div style={{ fontSize:13,fontWeight:700,color:C.accent,marginBottom:8 }}>{title}</div>{children}</div>; }
@@ -1726,4 +1980,5 @@ const CSS = `
   select option{background:#0d1526;color:#e2e8f0;}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.6);}}
   @media(max-width:767px){body{overflow:auto;}}
+  @keyframes popIn{0%{transform:scale(0.85);opacity:0;}60%{transform:scale(1.04);}100%{transform:scale(1);opacity:1;}}
 `;
