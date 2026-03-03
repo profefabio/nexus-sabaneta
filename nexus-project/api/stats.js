@@ -56,7 +56,8 @@ module.exports = async function handler(req, res) {
     let qDetalle = supabase
       .from("nexus_progreso")
       .select("estudiante_id, nombre_estudiante, grado, grupo, xp_total, nota, mision_id, nivel, updated_at")
-      .order("nombre_estudiante", { ascending: true });
+      .order("nombre_estudiante", { ascending: true })
+      .limit(2000); // ← Protector: evita descargar miles de filas en un solo request
 
     let qTop = supabase
       .from("nexus_progreso")

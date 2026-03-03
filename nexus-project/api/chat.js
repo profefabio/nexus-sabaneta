@@ -8,7 +8,6 @@ module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(200).json({ error: "Method not allowed" });
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    // SIEMPRE retornar 200 con campo error — nunca 401/403 para evitar redirect de Vercel
     return res.status(200).json({
       error: "⚠️ ANTHROPIC_API_KEY no configurada en Vercel. Ve a Settings → Environment Variables.",
     });
@@ -18,14 +17,27 @@ module.exports = async function handler(req, res) {
   if (!messages || !system)
     return res.status(200).json({ error: "Faltan parámetros en la solicitud." });
 
-  // Anthropic exige que el array empiece con rol "user"
+  // Limpiar y validar mensajes
   const clean = messages.filter(m => m.role === "user" || m.role === "assistant");
   let start = 0;
   while (start < clean.length && clean[start].role !== "user") start++;
-  const validMessages = clean.slice(start);
+  let validMessages = clean.slice(start);
 
   if (validMessages.length === 0)
     return res.status(200).json({ error: "No hay mensajes de usuario válidos." });
+
+  // ── CORRECCIÓN: Truncar a los últimos 50 mensajes para evitar exceso de tokens ──
+  if (validMessages.length > 50) {
+    validMessages = validMessages.slice(validMessages.length - 50);
+    // Asegurar que empiece con "user"
+    while (validMessages.length > 0 && validMessages[0].role !== "user") {
+      validMessages.shift();
+    }
+  }
+
+  // ── CORRECCIÓN: Timeout de 25 segundos con AbortController ──
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -41,19 +53,17 @@ module.exports = async function handler(req, res) {
         system,
         messages: validMessages,
       }),
+      signal: controller.signal,
     });
 
-    // ── CRÍTICO: NUNCA reenviar 401/403 de Anthropic al browser ──
-    // Vercel intercepta cualquier respuesta 401 y redirige a /api/login,
-    // lo que hace que el chat se quede colgado sin mostrar el error real.
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({}));
       const anthropicStatus = response.status;
       const msg = errBody?.error?.message || response.statusText || "Error desconocido";
-
       console.error("ANTHROPIC ERROR:", anthropicStatus, JSON.stringify(errBody));
 
-      // Mensajes amigables según el código de error
       let userMsg;
       if (anthropicStatus === 401) {
         userMsg = "⚠️ La clave de API de Anthropic es inválida o expiró. El administrador debe actualizarla en Vercel → Environment Variables → ANTHROPIC_API_KEY.";
@@ -64,8 +74,6 @@ module.exports = async function handler(req, res) {
       } else {
         userMsg = `⚠️ Error del servicio de IA (${anthropicStatus}): ${msg}`;
       }
-
-      // Siempre 200 para que Vercel no intercepte
       return res.status(200).json({ error: userMsg });
     }
 
@@ -73,6 +81,13 @@ module.exports = async function handler(req, res) {
     return res.status(200).json(data);
 
   } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      console.error("CHAT TIMEOUT: La solicitud tardó más de 25s");
+      return res.status(200).json({
+        error: "⏳ La IA tardó demasiado en responder. Intenta de nuevo en unos segundos.",
+      });
+    }
     console.error("CHAT NETWORK ERROR:", err.message);
     return res.status(200).json({
       error: "⚠️ Error de conexión con el servicio de IA. Verifica tu internet e intenta de nuevo.",
