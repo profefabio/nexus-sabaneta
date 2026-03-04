@@ -32,6 +32,8 @@ async function guardarProgreso(supabase, payload) {
     nivel:            payload.nivel || 1,
     mision_id:        payload.mision_id || null,
     updated_at:       new Date().toISOString(),
+    // equipo_nombre: se omite intencionalmente — se reconstruye desde nexus_chats
+    // (la columna puede no existir en Supabase y causaría error de constraint)
   };
 
   // 1er intento: upsert con constraint compuesta (si ya está migrado)
@@ -79,13 +81,15 @@ module.exports = async function handler(req, res) {
       estudiante_id, nombre_estudiante, grado, grupo, xp_total, nivel, mision_id
     });
 
-    // Si hay equipo, guardar el mismo XP para cada integrante
+    // Si hay equipo, guardar el mismo XP para cada integrante del equipo
     if (equipo?.integrantes?.length > 0) {
       await Promise.all(equipo.integrantes.map(m =>
         guardarProgreso(supabase, {
-          estudiante_id: String(m.id),
-          nombre_estudiante: `${m.nombres} ${m.apellidos}`,
-          grado, grupo, xp_total, nivel, mision_id,
+          estudiante_id:    String(m.id),
+          nombre_estudiante: `${m.nombres || ""} ${m.apellidos || ""}`.trim(),
+          grado:  m.grado  || grado,
+          grupo:  m.grupo  || grupo,
+          xp_total, nivel, mision_id,
         })
       ));
     }
