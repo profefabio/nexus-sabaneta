@@ -1892,7 +1892,7 @@ function MissionMap({ misiones, onSelect }) {
 
 
 // ═══════════════════════════════════════════════════════════════
-// EQUIPOS PANEL — Lista de equipos con integrantes y resumen
+// EQUIPOS PANEL — Lista de equipos con filtro por grado y grupo
 // ═══════════════════════════════════════════════════════════════
 function EquiposPanel({ user }) {
   const isMobile = useIsMobile();
@@ -1900,6 +1900,10 @@ function EquiposPanel({ user }) {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [selEquipo, setSelEquipo] = useState(null);
+
+  // Filtros cascada: grado → grupo → misión
+  const [filtroGrado,  setFiltroGrado]  = useState("todos");
+  const [filtroGrupo,  setFiltroGrupo]  = useState("todos");
   const [filtroMision, setFiltroMision] = useState("todas");
 
   useEffect(() => {
@@ -1915,90 +1919,118 @@ function EquiposPanel({ user }) {
       .catch(e => { setError(e.message); setLoading(false); });
   }, [user.id]);
 
-  // Todas las misiones únicas de todos los equipos
-  const todasMisiones = [...new Map(
-    equipos.flatMap(e => e.misiones).map(m => [m.id, m])
-  ).values()];
+  // Grados y grupos disponibles (solo de los equipos existentes)
+  const gradosDisp = [...new Set(equipos.map(e => e.grado).filter(Boolean))].sort((a,b)=>Number(a)-Number(b));
+  const gruposDisp = filtroGrado === "todos"
+    ? [...new Set(equipos.map(e => e.grupo).filter(Boolean))].sort()
+    : [...new Set(equipos.filter(e => e.grado === filtroGrado).map(e => e.grupo).filter(Boolean))].sort();
 
+  // Misiones de los equipos visibles
+  const equiposFiltGrado = filtroGrado === "todos" ? equipos : equipos.filter(e => e.grado === filtroGrado);
+  const equiposFiltGrupo = filtroGrupo === "todos" ? equiposFiltGrado : equiposFiltGrado.filter(e => e.grupo === filtroGrupo);
+  const todasMisiones = [...new Map(equiposFiltGrupo.flatMap(e => e.misiones).map(m => [m.id, m])).values()];
   const equiposFiltrados = filtroMision === "todas"
-    ? equipos
-    : equipos.filter(e => e.misiones.some(m => m.id === filtroMision));
+    ? equiposFiltGrupo
+    : equiposFiltGrupo.filter(e => e.misiones.some(m => m.id === filtroMision));
 
-  // ── Vista detalle de un equipo ───────────────────────────────
+  const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
+
+  // ── Vista detalle equipo ─────────────────────────────────────
   if (selEquipo) {
     const eq = selEquipo;
-    const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
     return (
-      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
+      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch",
+        padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
+
         <button onClick={() => setSelEquipo(null)}
-          style={{ marginBottom:16, background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+          style={{ marginBottom:16, background:"none", border:"none", color:C.muted,
+            cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
           ← Volver a equipos
         </button>
 
-        {/* Cabecera del equipo */}
-        <div style={{ background:`linear-gradient(135deg,${C.card},${C.surface})`, border:`1px solid ${C.accent2}55`, borderRadius:18, padding:"22px 20px", marginBottom:18 }}>
+        {/* Cabecera */}
+        <div style={{ background:`linear-gradient(135deg,${C.card},${C.surface})`,
+          border:`1px solid ${C.accent2}55`, borderRadius:18, padding:"22px 20px", marginBottom:18 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
-            <div style={{ width:52, height:52, borderRadius:16, background:`${C.accent2}20`, border:`2px solid ${C.accent2}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>👥</div>
-            <div>
-              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?16:20, fontWeight:900, color:C.accent2 }}>{eq.nombre}</div>
-              <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>
-                {eq.num_integrantes} integrante{eq.num_integrantes!==1?"s":""} · Última actividad: {new Date(eq.ultima_actividad).toLocaleDateString("es-CO")}
+            <div style={{ width:52,height:52,borderRadius:16,background:`${C.accent2}20`,
+              border:`2px solid ${C.accent2}`,display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:26,flexShrink:0 }}>👥</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?15:20,
+                fontWeight:900, color:C.accent2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                {eq.nombre}
+              </div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:4, display:"flex", gap:10, flexWrap:"wrap" }}>
+                {eq.grado && <span>📚 Grado {eq.grado}</span>}
+                {eq.grupo && <span>👥 Grupo {eq.grupo}</span>}
+                <span>🗓️ {new Date(eq.ultima_actividad).toLocaleDateString("es-CO")}</span>
               </div>
             </div>
           </div>
 
-          {/* Stats del equipo */}
+          {/* Stats */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
             {[
               ["👥","Integrantes", eq.num_integrantes, C.accent2],
-              ["⭐","XP total", eq.xp_equipo, "#f97316"],
-              ["🏆","Nota prom.", eq.nota_promedio.toFixed(1), notaColor2(eq.nota_promedio)],
+              ["⭐","XP total",    eq.xp_equipo,       "#f97316"],
+              ["🏆","Nota prom.",  eq.nota_promedio.toFixed(1), notaColor2(eq.nota_promedio)],
             ].map(([ic,lb,val,col]) => (
-              <div key={lb} style={{ background:C.bg, borderRadius:12, padding:"12px 10px", textAlign:"center", border:`1px solid ${col}33` }}>
+              <div key={lb} style={{ background:C.bg,borderRadius:12,padding:"12px 10px",
+                textAlign:"center",border:`1px solid ${col}33` }}>
                 <div style={{ fontSize:18, marginBottom:4 }}>{ic}</div>
-                <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?16:20, fontWeight:900, color:col }}>{val}</div>
-                <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{lb}</div>
+                <div style={{ fontFamily:"'Orbitron',monospace",fontSize:isMobile?16:20,
+                  fontWeight:900,color:col }}>{val}</div>
+                <div style={{ fontSize:10,color:C.muted,marginTop:3 }}>{lb}</div>
               </div>
             ))}
           </div>
         </div>
 
         {/* Misiones trabajadas */}
-        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:18, marginBottom:16 }}>
-          <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>🗺️ Misiones trabajadas</div>
+        <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16 }}>
+          <div style={{ fontSize:14,fontWeight:700,marginBottom:12 }}>🗺️ Misiones trabajadas</div>
           {eq.misiones.length === 0
-            ? <div style={{ fontSize:12, color:C.muted }}>Sin misiones registradas.</div>
-            : eq.misiones.map((m, i) => (
-              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:C.surface, borderRadius:10, marginBottom:6, border:`1px solid ${m.color||C.border}33` }}>
+            ? <div style={{ fontSize:12,color:C.muted }}>Sin misiones registradas.</div>
+            : eq.misiones.map((m,i) => (
+              <div key={i} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                background:C.surface,borderRadius:10,marginBottom:6,border:`1px solid ${m.color||C.border}33` }}>
                 <span style={{ fontSize:18 }}>{m.icon}</span>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:m.color||C.accent }}>{m.title}</div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{m.mensajes} mensajes en el chat</div>
+                  <div style={{ fontSize:13,fontWeight:600,color:m.color||C.accent }}>{m.title}</div>
+                  <div style={{ fontSize:10,color:C.muted,marginTop:2 }}>{m.mensajes} mensajes en el chat</div>
                 </div>
               </div>
             ))
           }
         </div>
 
-        {/* Integrantes individuales */}
-        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:18 }}>
-          <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>🎓 Desempeño individual</div>
-          {eq.integrantes.map((int, i) => {
+        {/* Integrantes */}
+        <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18 }}>
+          <div style={{ fontSize:14,fontWeight:700,marginBottom:12 }}>🎓 Desempeño individual</div>
+          {eq.integrantes.map((int,i) => {
             const nc = notaColor2(int.nota);
             return (
-              <div key={int.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:C.surface, borderRadius:12, marginBottom:8, border:`1px solid ${nc}22` }}>
-                <div style={{ width:36, height:36, borderRadius:"50%", background:`${nc}20`, border:`2px solid ${nc}55`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Orbitron',monospace", fontWeight:900, fontSize:13, color:nc, flexShrink:0 }}>
+              <div key={int.id} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
+                background:C.surface,borderRadius:12,marginBottom:8,border:`1px solid ${nc}22` }}>
+                <div style={{ width:36,height:36,borderRadius:"50%",background:`${nc}20`,
+                  border:`2px solid ${nc}55`,display:"flex",alignItems:"center",justifyContent:"center",
+                  fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:nc,flexShrink:0 }}>
                   {i===0?"⭐":"🎓"}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                    {int.nombre} {i===0 && <span style={{ fontSize:10, color:C.accent, marginLeft:6, fontWeight:400 }}>(líder)</span>}
+                  <div style={{ fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
+                    {int.nombre}
+                    {i===0 && <span style={{ fontSize:10,color:C.accent,marginLeft:6,fontWeight:400 }}>(líder)</span>}
                   </div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{int.xp_total} XP</div>
+                  <div style={{ fontSize:10,color:C.muted,marginTop:2 }}>
+                    {int.grado && `G${int.grado}`}{int.grupo && `·${int.grupo}`} · {int.xp_total} XP
+                  </div>
                 </div>
-                <div style={{ textAlign:"right", flexShrink:0 }}>
-                  <div style={{ fontFamily:"'Orbitron',monospace", fontSize:22, fontWeight:900, color:nc, lineHeight:1 }}>{int.nota.toFixed(1)}</div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>nota</div>
+                <div style={{ textAlign:"right",flexShrink:0 }}>
+                  <div style={{ fontFamily:"'Orbitron',monospace",fontSize:22,fontWeight:900,color:nc,lineHeight:1 }}>
+                    {int.nota.toFixed(1)}
+                  </div>
+                  <div style={{ fontSize:10,color:C.muted,marginTop:2 }}>nota</div>
                 </div>
               </div>
             );
@@ -2008,110 +2040,170 @@ function EquiposPanel({ user }) {
     );
   }
 
-  // ── Vista lista de equipos ────────────────────────────────────
-  const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
-
+  // ── Vista lista con filtros ──────────────────────────────────
   return (
-    <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
-      <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>👥 Equipos</h1>
-      <p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>Equipos formados por los estudiantes en sus sesiones de chat.</p>
+    <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch",
+      padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
 
-      {loading && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando equipos...</div>}
-      {error   && <div style={{ background:"#ff444422", border:"1px solid #ff444444", color:"#ff7777", padding:"10px 14px", borderRadius:8, fontSize:12, marginBottom:14 }}>⚠️ {error}</div>}
+      <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>👥 Equipos</h1>
+      <p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>
+        Equipos formados por los estudiantes. Filtra por grado, grupo y misión.
+      </p>
+
+      {loading && <div style={{ color:C.muted,fontSize:13 }}>⏳ Cargando equipos...</div>}
+      {error   && <div style={{ background:"#ff444422",border:"1px solid #ff444444",color:"#ff7777",
+        padding:"10px 14px",borderRadius:8,fontSize:12,marginBottom:14 }}>⚠️ {error}</div>}
 
       {!loading && equipos.length === 0 && !error && (
-        <div style={{ background:`${C.accent2}10`, border:`1px solid ${C.accent2}33`, borderRadius:14, padding:"30px 20px", textAlign:"center" }}>
-          <div style={{ fontSize:40, marginBottom:12 }}>👥</div>
-          <div style={{ fontSize:15, fontWeight:800, color:C.accent2, marginBottom:8 }}>Aún no hay equipos registrados</div>
-          <div style={{ fontSize:12, color:C.muted, lineHeight:1.8 }}>
-            Los equipos aparecen aquí cuando los estudiantes los crean desde la pestaña <strong style={{color:C.accent}}>Mi Equipo</strong> y trabajan en el chat. 🚀
+        <div style={{ background:`${C.accent2}10`,border:`1px solid ${C.accent2}33`,
+          borderRadius:14,padding:"30px 20px",textAlign:"center" }}>
+          <div style={{ fontSize:40,marginBottom:12 }}>👥</div>
+          <div style={{ fontSize:15,fontWeight:800,color:C.accent2,marginBottom:8 }}>
+            Aún no hay equipos registrados
+          </div>
+          <div style={{ fontSize:12,color:C.muted,lineHeight:1.8 }}>
+            Los equipos aparecen aquí cuando los estudiantes los crean desde <strong style={{color:C.accent}}>Mi Equipo</strong> y trabajan en el chat. 🚀
           </div>
         </div>
       )}
 
-      {!loading && equipos.length > 0 && (
-        <>
-          {/* Resumen rápido */}
-          <div style={{ display:"grid", gridTemplateColumns: isMobile?"1fr 1fr":"repeat(3,1fr)", gap:10, marginBottom:18 }}>
-            {[
-              ["👥","Equipos",equipos.length, C.accent2],
-              ["🎓","Estudiantes",equipos.reduce((s,e)=>s+e.num_integrantes,0), C.accent3],
-              ["🏆","Nota promedio",(equipos.reduce((s,e)=>s+e.nota_promedio,0)/equipos.length).toFixed(1), "#f97316"],
-            ].map(([ic,lb,val,col]) => (
-              <div key={lb} style={{ background:C.card, border:`1px solid ${col}33`, borderRadius:12, padding:"14px 12px", textAlign:"center" }}>
-                <div style={{ fontSize:20, marginBottom:5 }}>{ic}</div>
-                <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?18:22, fontWeight:900, color:col }}>{val}</div>
-                <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{lb}</div>
-              </div>
+      {!loading && equipos.length > 0 && (<>
+
+        {/* ── Filtro Grado ─────────────────────── */}
+        <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
+          padding:"14px 16px",marginBottom:10 }}>
+          <div style={{ fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",
+            letterSpacing:1,marginBottom:10 }}>📚 Grado</div>
+          <div style={{ display:"flex",gap:7,flexWrap:"wrap" }}>
+            {["todos",...gradosDisp].map(g => (
+              <button key={g} onClick={() => { setFiltroGrado(g); setFiltroGrupo("todos"); setFiltroMision("todas"); }}
+                style={{ padding:"7px 16px",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+                  fontWeight:700,fontSize:13,
+                  border:`2px solid ${filtroGrado===g?C.accent:C.border}`,
+                  background: filtroGrado===g?`${C.accent}22`:"transparent",
+                  color: filtroGrado===g?C.accent:C.muted }}>
+                {g==="todos"?"Todos":g+"°"}
+              </button>
             ))}
           </div>
+        </div>
 
-          {/* Filtro por misión */}
-          {todasMisiones.length > 1 && (
-            <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginBottom:14 }}>
-              {[{id:"todas",title:"Todas",color:C.accent}, ...todasMisiones].map(m => (
+        {/* ── Filtro Grupo (solo si hay grado) ─── */}
+        {gruposDisp.length > 0 && (
+          <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
+            padding:"14px 16px",marginBottom:10 }}>
+            <div style={{ fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",
+              letterSpacing:1,marginBottom:10 }}>👥 Grupo</div>
+            <div style={{ display:"flex",gap:7,flexWrap:"wrap" }}>
+              {["todos",...gruposDisp].map(g => (
+                <button key={g} onClick={() => { setFiltroGrupo(g); setFiltroMision("todas"); }}
+                  style={{ padding:"7px 16px",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+                    fontWeight:700,fontSize:13,
+                    border:`2px solid ${filtroGrupo===g?C.accent2:C.border}`,
+                    background: filtroGrupo===g?`${C.accent2}22`:"transparent",
+                    color: filtroGrupo===g?C.accent2:C.muted }}>
+                  {g==="todos"?"Todos":"Grupo "+g}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Filtro Misión ─────────────────────── */}
+        {todasMisiones.length > 1 && (
+          <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
+            padding:"12px 16px",marginBottom:14 }}>
+            <div style={{ fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",
+              letterSpacing:1,marginBottom:10 }}>🗺️ Misión</div>
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+              {[{id:"todas",title:"Todas",color:C.accent3},...todasMisiones].map(m => (
                 <button key={m.id} onClick={() => setFiltroMision(m.id)}
-                  style={{ padding:"5px 12px", borderRadius:20, fontSize:11, cursor:"pointer", fontFamily:"inherit",
-                    fontWeight: filtroMision===m.id ? 700 : 400,
-                    border:`1px solid ${filtroMision===m.id ? m.color : C.border}`,
-                    background: filtroMision===m.id ? `${m.color}22` : "transparent",
-                    color: filtroMision===m.id ? m.color : C.muted }}>
+                  style={{ padding:"5px 12px",borderRadius:20,fontSize:11,cursor:"pointer",
+                    fontFamily:"inherit",fontWeight:filtroMision===m.id?700:400,
+                    border:`1px solid ${filtroMision===m.id?m.color:C.border}`,
+                    background: filtroMision===m.id?`${m.color}22`:"transparent",
+                    color: filtroMision===m.id?m.color:C.muted }}>
                   {m.title}
                 </button>
               ))}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Lista de equipos */}
-          {equiposFiltrados.map((eq, idx) => (
+        {/* ── Resumen de los equipos visibles ──── */}
+        <div style={{ display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",
+          gap:10,marginBottom:16 }}>
+          {[
+            ["👥","Equipos",      equiposFiltrados.length,                                     C.accent2],
+            ["🎓","Estudiantes",  equiposFiltrados.reduce((s,e)=>s+e.num_integrantes,0),        C.accent3],
+            ["🏆","Nota promedio",equiposFiltrados.length > 0
+              ? (equiposFiltrados.reduce((s,e)=>s+e.nota_promedio,0)/equiposFiltrados.length).toFixed(1)
+              : "—",                                                                             "#f97316"],
+          ].map(([ic,lb,val,col]) => (
+            <div key={lb} style={{ background:C.card,border:`1px solid ${col}33`,borderRadius:12,
+              padding:"12px 10px",textAlign:"center" }}>
+              <div style={{ fontSize:18,marginBottom:4 }}>{ic}</div>
+              <div style={{ fontFamily:"'Orbitron',monospace",fontSize:isMobile?16:20,
+                fontWeight:900,color:col }}>{val}</div>
+              <div style={{ fontSize:10,color:C.muted,marginTop:3 }}>{lb}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Lista de equipos ─────────────────── */}
+        {equiposFiltrados.length === 0
+          ? <div style={{ color:C.muted,fontSize:13,padding:"20px 0",textAlign:"center" }}>
+              Sin equipos para los filtros seleccionados.
+            </div>
+          : equiposFiltrados.map((eq, idx) => (
             <div key={eq.nombre}
               onClick={() => setSelEquipo(eq)}
-              style={{ background:C.card, border:`1px solid ${notaColor2(eq.nota_promedio)}33`, borderRadius:16, padding:"16px 18px", marginBottom:12, cursor:"pointer", transition:"border-color .15s, transform .1s" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = notaColor2(eq.nota_promedio)+"88"; e.currentTarget.style.transform = "translateY(-1px)"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = notaColor2(eq.nota_promedio)+"33"; e.currentTarget.style.transform = ""; }}
+              style={{ background:C.card,border:`1px solid ${notaColor2(eq.nota_promedio)}33`,
+                borderRadius:16,padding:"16px 18px",marginBottom:12,cursor:"pointer",transition:"all .15s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor=notaColor2(eq.nota_promedio)+"88"; e.currentTarget.style.transform="translateY(-1px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor=notaColor2(eq.nota_promedio)+"33"; e.currentTarget.style.transform=""; }}
             >
-              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-                {/* Posición */}
-                <div style={{ fontFamily:"'Orbitron',monospace", color: idx===0?"#ffd700":idx===1?"#c0c0c0":idx===2?"#cd7f32":C.muted, fontWeight:900, fontSize:12, width:24, flexShrink:0 }}>
-                  #{idx+1}
-                </div>
+              <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+                <div style={{ fontFamily:"'Orbitron',monospace",color:idx===0?"#ffd700":idx===1?"#c0c0c0":idx===2?"#cd7f32":C.muted,
+                  fontWeight:900,fontSize:12,width:24,flexShrink:0 }}>#{idx+1}</div>
 
-                {/* Avatar + nombre */}
-                <div style={{ width:42, height:42, borderRadius:13, background:`${C.accent2}18`, border:`1.5px solid ${C.accent2}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
-                  👥
-                </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:800, fontSize:isMobile?14:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                    {eq.nombre}
-                  </div>
-                  <div style={{ fontSize:10, color:C.muted, marginTop:3, display:"flex", gap:8, flexWrap:"wrap" }}>
+                <div style={{ width:42,height:42,borderRadius:13,background:`${C.accent2}18`,
+                  border:`1.5px solid ${C.accent2}44`,display:"flex",alignItems:"center",
+                  justifyContent:"center",fontSize:20,flexShrink:0 }}>👥</div>
+
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ fontWeight:800,fontSize:isMobile?14:15,overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{eq.nombre}</div>
+                  <div style={{ fontSize:10,color:C.muted,marginTop:3,display:"flex",gap:8,flexWrap:"wrap" }}>
+                    {eq.grado && <span>📚 G{eq.grado}</span>}
+                    {eq.grupo && <span>· Grp {eq.grupo}</span>}
                     <span>🎓 {eq.num_integrantes} integrante{eq.num_integrantes!==1?"s":""}</span>
                     <span>⭐ {eq.xp_equipo} XP</span>
                     <span>🗓️ {new Date(eq.ultima_actividad).toLocaleDateString("es-CO")}</span>
                   </div>
-                  {/* Chips de misiones */}
-                  <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:6 }}>
+                  <div style={{ display:"flex",gap:5,flexWrap:"wrap",marginTop:6 }}>
                     {eq.misiones.map((m,i) => (
-                      <span key={i} style={{ fontSize:9, padding:"2px 7px", borderRadius:20, background:`${m.color||C.accent}22`, color:m.color||C.accent, fontWeight:600 }}>
+                      <span key={i} style={{ fontSize:9,padding:"2px 7px",borderRadius:20,
+                        background:`${m.color||C.accent}22`,color:m.color||C.accent,fontWeight:600 }}>
                         {m.icon} {m.title}
                       </span>
                     ))}
                   </div>
                 </div>
 
-                {/* Nota */}
-                <div style={{ textAlign:"center", flexShrink:0 }}>
-                  <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?22:28, fontWeight:900, color:notaColor2(eq.nota_promedio), lineHeight:1 }}>
+                <div style={{ textAlign:"center",flexShrink:0 }}>
+                  <div style={{ fontFamily:"'Orbitron',monospace",fontSize:isMobile?22:28,
+                    fontWeight:900,color:notaColor2(eq.nota_promedio),lineHeight:1 }}>
                     {eq.nota_promedio.toFixed(1)}
                   </div>
-                  <div style={{ fontSize:9, color:C.muted, marginTop:3 }}>nota prom.</div>
-                  <div style={{ fontSize:10, color:C.accent, marginTop:4 }}>Ver →</div>
+                  <div style={{ fontSize:9,color:C.muted,marginTop:3 }}>nota prom.</div>
+                  <div style={{ fontSize:10,color:C.accent,marginTop:4 }}>Ver →</div>
                 </div>
               </div>
             </div>
-          ))}
-        </>
-      )}
+          ))
+        }
+      </>)}
     </div>
   );
 }
