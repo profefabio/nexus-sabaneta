@@ -1,5 +1,4 @@
-// api/equipos.js — Equipos: lista, integrantes y resumen de actividad
-// Reconstruye equipos desde nexus_chats (tiene equipo_nombre) + nexus_progreso
+// api/equipos.js — Equipos con grado/grupo para filtros
 const { createClient } = require("@supabase/supabase-js");
 
 module.exports = async function handler(req, res) {
@@ -13,79 +12,63 @@ module.exports = async function handler(req, res) {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
     return res.status(200).json({ error: "Faltan variables de entorno", equipos: [] });
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY
-  );
-
-  const { docente_id, role } = req.query;
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  const { docente_id } = req.query;
 
   try {
-    // 1. Obtener misiones del docente (para filtrar solo sus chats)
+    // 1. Misiones del docente
     let misionIds = null;
     let misionesMap = {};
-
     if (docente_id) {
       const { data: misiones } = await supabase
         .from("nexus_misiones")
         .select("id, title, color, icon")
         .eq("docente_id", docente_id);
-
       misionIds = (misiones || []).map(m => m.id);
       (misiones || []).forEach(m => { misionesMap[m.id] = m; });
-
-      if (misionIds.length === 0) {
+      if (misionIds.length === 0)
         return res.status(200).json({ equipos: [], sinMisiones: true });
-      }
     }
 
-    // 2. Traer todos los chats con equipo_nombre para estas misiones
-    //    Un chat por mensaje — buscamos los únicos estudiante×equipo×misión
+    // 2. Chats con equipo_nombre
     let qChats = supabase
       .from("nexus_chats")
       .select("estudiante_id, nombre_estudiante, equipo_nombre, mision_id, mision_title, xp_at_time, created_at")
       .not("equipo_nombre", "is", null)
       .order("created_at", { ascending: false })
       .limit(5000);
-
     if (misionIds) qChats = qChats.in("mision_id", misionIds);
 
     const { data: chats, error: chatError } = await qChats;
     if (chatError) return res.status(200).json({ error: chatError.message, equipos: [] });
-
-    if (!chats || chats.length === 0)
-      return res.status(200).json({ equipos: [] });
+    if (!chats || chats.length === 0) return res.status(200).json({ equipos: [] });
 
     // 3. Agrupar por equipo_nombre
-    //    Para cada equipo: conjunto de estudiante_id + misiones trabajadas + última actividad
     const equipoMap = {};
-
     chats.forEach(c => {
       const key = c.equipo_nombre;
       if (!equipoMap[key]) {
         equipoMap[key] = {
           nombre: key,
-          integrantes: {},        // { id → { nombre, xp_max, ultima } }
-          misiones: {},           // { mision_id → { title, mensajes, ultimo_xp } }
+          integrantes: {},
+          misiones: {},
           ultima_actividad: c.created_at,
         };
       }
       const eq = equipoMap[key];
 
-      // Registrar integrante
       if (!eq.integrantes[c.estudiante_id]) {
         eq.integrantes[c.estudiante_id] = {
           id: c.estudiante_id,
           nombre: c.nombre_estudiante,
           xp_max: 0,
-          ultima: c.created_at,
+          grado: null,
+          grupo: null,
         };
       }
       const int = eq.integrantes[c.estudiante_id];
       if ((c.xp_at_time || 0) > int.xp_max) int.xp_max = c.xp_at_time || 0;
-      if (c.created_at > int.ultima) int.ultima = c.created_at;
 
-      // Registrar misión trabajada
       const mId = c.mision_id || "libre";
       if (!eq.misiones[mId]) {
         eq.misiones[mId] = {
@@ -97,61 +80,91 @@ module.exports = async function handler(req, res) {
         };
       }
       eq.misiones[mId].mensajes++;
-
       if (c.created_at > eq.ultima_actividad) eq.ultima_actividad = c.created_at;
     });
 
-    // 4. Obtener el progreso real de todos los estudiantes involucrados
+    // 4. Progreso real + grado/grupo de cada estudiante
     const todosIds = [...new Set(chats.map(c => c.estudiante_id))];
     let progresoMap = {};
+    let gradoGrupoMap = {}; // { estudiante_id → { grado, grupo } }
 
     if (todosIds.length > 0) {
       let qProg = supabase
         .from("nexus_progreso")
-        .select("estudiante_id, xp_total, nota, nivel, mision_id")
+        .select("estudiante_id, xp_total, nota, nivel, mision_id, grado, grupo")
         .in("estudiante_id", todosIds.map(String));
-
       if (misionIds) qProg = qProg.in("mision_id", misionIds);
 
       const { data: progreso } = await qProg;
       (progreso || []).forEach(p => {
-        const k = `${p.estudiante_id}_${p.mision_id}`;
-        progresoMap[k] = p;
-        // También guardar el total máximo por estudiante (suma de misiones)
-        if (!progresoMap[`total_${p.estudiante_id}`]) {
+        // XP acumulado por estudiante
+        if (!progresoMap[`total_${p.estudiante_id}`])
           progresoMap[`total_${p.estudiante_id}`] = 0;
-        }
         progresoMap[`total_${p.estudiante_id}`] += (p.xp_total || 0);
+
+        // Guardar grado/grupo (tomamos el primero que tenga datos)
+        if (!gradoGrupoMap[p.estudiante_id] && (p.grado || p.grupo)) {
+          gradoGrupoMap[p.estudiante_id] = { grado: p.grado || "", grupo: p.grupo || "" };
+        }
       });
     }
 
-    // 5. Construir respuesta final
+    // 5. También buscar grado/grupo desde nexus_estudiantes si existe
+    if (todosIds.length > 0) {
+      const { data: ests } = await supabase
+        .from("nexus_estudiantes")
+        .select("id, grado, grupo")
+        .in("id", todosIds.map(String));
+      (ests || []).forEach(e => {
+        if (e.grado || e.grupo) {
+          gradoGrupoMap[e.id] = { grado: e.grado || "", grupo: e.grupo || "" };
+        }
+      });
+    }
+
+    // 6. Construir respuesta final
     const equipos = Object.values(equipoMap).map(eq => {
-      const integrantes = Object.values(eq.integrantes).map(int => {
+      const integrantes = Object.values(eq.integrantes).map((int, i) => {
+        const gg = gradoGrupoMap[int.id] || { grado: "", grupo: "" };
         const xpTotal = progresoMap[`total_${int.id}`] || int.xp_max;
         return {
           id: int.id,
           nombre: int.nombre,
           xp_total: xpTotal,
           nota: calcNota(xpTotal),
+          grado: gg.grado,
+          grupo: gg.grupo,
+          es_lider: i === 0,   // el primero registrado en chats es el líder
         };
       });
 
+      // Grado/grupo del equipo = el más frecuente entre integrantes
+      const gradoCounts = {};
+      const grupoCounts = {};
+      integrantes.forEach(i => {
+        if (i.grado) gradoCounts[i.grado] = (gradoCounts[i.grado] || 0) + 1;
+        if (i.grupo) grupoCounts[i.grupo] = (grupoCounts[i.grupo] || 0) + 1;
+      });
+      const gradoEquipo = Object.entries(gradoCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] || "";
+      const grupoEquipo = Object.entries(grupoCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] || "";
+
       const xpEquipo = integrantes.reduce((s, i) => s + i.xp_total, 0);
-      const notaPromEquipo = integrantes.length > 0
-        ? Math.round((integrantes.reduce((s, i) => s + i.nota, 0) / integrantes.length) * 10) / 10
+      const notaProm = integrantes.length > 0
+        ? Math.round((integrantes.reduce((s,i) => s + i.nota, 0) / integrantes.length) * 10) / 10
         : 1.0;
 
       return {
         nombre: eq.nombre,
-        integrantes: integrantes.sort((a, b) => b.xp_total - a.xp_total),
+        grado: gradoEquipo,
+        grupo: grupoEquipo,
+        integrantes: integrantes.sort((a,b) => b.xp_total - a.xp_total),
         misiones: Object.values(eq.misiones),
         xp_equipo: xpEquipo,
-        nota_promedio: notaPromEquipo,
+        nota_promedio: notaProm,
         num_integrantes: integrantes.length,
         ultima_actividad: eq.ultima_actividad,
       };
-    }).sort((a, b) => b.nota_promedio - a.nota_promedio || b.xp_equipo - a.xp_equipo);
+    }).sort((a,b) => b.nota_promedio - a.nota_promedio || b.xp_equipo - a.xp_equipo);
 
     return res.status(200).json({ equipos });
 
