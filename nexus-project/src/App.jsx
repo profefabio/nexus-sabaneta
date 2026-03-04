@@ -1,34 +1,60 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 // ─── Responsive hook ──────────────────────────────────────────
+// isMobile = true para teléfonos (<768px)  isMobile = true para tablets (<1024px)
+// Se usa el mismo flag porque el diseño columnar funciona bien hasta 1024px
 const useIsMobile = () => {
-  const [mobile, setMobile] = useState(window.innerWidth < 768);
+  const [mobile, setMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 1024 : false
+  );
   useEffect(() => {
-    const fn = () => setMobile(window.innerWidth < 768);
-    window.addEventListener("resize", fn);
+    const fn = () => setMobile(window.innerWidth < 1024);
+    window.addEventListener("resize", fn, { passive: true });
     return () => window.removeEventListener("resize", fn);
   }, []);
   return mobile;
 };
 
+// ─── Sanitización de mensajes del chat (previene XSS) ───────
+const sanitizeChat = (text) => {
+  // 1. Escapar HTML nativo antes de cualquier procesado
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  // 2. Convertir markdown seguro a HTML
+  return escaped
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+    .replace(/`(.*?)`/g, "<code style='background:#0d1526;padding:1px 5px;border-radius:4px;font-size:12px'>$1</code>")
+    .replace(/\n/g, "<br/>");
+};
+
 // ─── API helpers ──────────────────────────────────────────────
-const callNexus = async (messages, system) => {
+const callNexus = async (messages, system, _retries=1) => {
   try {
     const res = await fetch("/api/chat", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({ messages, system }),
     });
 
-    // Si Vercel redirige por auth (301/302), capturarlo
     if (res.status === 301 || res.status === 302 || res.status === 401 || res.status === 403) {
-      return "⚠️ Error de autenticación con el servicio de IA. El administrador debe verificar la API key en Vercel → Environment Variables → ANTHROPIC_API_KEY.";
+      return "⚠️ Error de autenticación. El administrador debe verificar la API key en Vercel.";
     }
 
     const data = await res.json().catch(() => ({ error: "Respuesta inválida del servidor." }));
-    if (data.error) return data.error; // el error ya viene formateado desde chat.js
+    if (data.error) {
+      // Reintentar automáticamente una vez si Anthropic está sobrecargado
+      const esRecuperable = /sobrecargado|529|503|tiempo|timeout/i.test(data.error);
+      if (_retries > 0 && esRecuperable) {
+        await new Promise(r => setTimeout(r, 3500));
+        return callNexus(messages, system, 0);
+      }
+      return data.error;
+    }
     return data.content?.[0]?.text || "⚠️ NEXUS no pudo generar una respuesta. Intenta de nuevo.";
   } catch (err) {
-    console.error("callNexus error:", err);
     return "⚠️ Sin conexión con NEXUS. Verifica tu internet e intenta de nuevo.";
   }
 };
@@ -336,12 +362,13 @@ function DashboardPanel({ user, misiones }) {
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    // Siempre filtrar por docente_id — admin ve sus propias misiones igual que un docente
+    let ignore = false;
     const params = `?docente_id=${user.id}&role=${user.role==="admin"?"admin":"teacher"}`;
     fetch(`/api/stats${params}`)
       .then(r=>r.json())
-      .then(d=>{ setStats(d); setLoading(false); })
-      .catch(()=>setLoading(false));
+      .then(d=>{ if(!ignore){ setStats(d); setLoading(false); } })
+      .catch(()=>{ if(!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [user?.id]);
 
   const grados = stats?.porGrado ? Object.keys(stats.porGrado).sort() : [];
@@ -453,10 +480,12 @@ function ChatInformePanel({ user }) {
 
   // Siempre cargar con docente_id — admin ve sus propios estudiantes por defecto
   useEffect(() => {
+    let ignore = false;
     const params = `?docente_id=${user.id}&role=${user.role==="admin"?"admin":"teacher"}`;
     fetch("/api/stats" + params).then(r => r.json()).then(d => {
-      setStats(d); setLoading(false);
-    }).catch(() => setLoading(false));
+      if(!ignore){ setStats(d); setLoading(false); }
+    }).catch(() => { if(!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [user.id]);
 
   const verChat = async (est) => {
@@ -522,7 +551,7 @@ function ChatInformePanel({ user }) {
                   <div style={{ width:24,height:24,borderRadius:"50%",background:`${C.accent}22`,border:`1px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:C.accent,flexShrink:0 }}>⬡</div>
                 )}
                 <div style={{ background:m.role==="user"?C.user:C.surface, border:`1px solid ${m.role==="user"?C.accent2+"44":C.border}`, borderRadius:m.role==="user"?"12px 3px 12px 12px":"3px 12px 12px 12px", padding:"8px 12px", maxWidth:"78%" }}>
-                  <div style={{ fontSize:12, lineHeight:1.6 }} dangerouslySetInnerHTML={{ __html:(m.content||"").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>") }} />
+                  <div style={{ fontSize:12, lineHeight:1.6 }} dangerouslySetInnerHTML={{ __html:sanitizeChat(m.content||"") }} />
                   <div style={{ fontSize:10, color:C.muted, marginTop:4 }}>
                     {new Date(m.created_at).toLocaleString("es-CO")}
                     {m.xp_at_time?` · ${m.xp_at_time} XP`:""}
@@ -620,11 +649,13 @@ function ProgresoPanel({ user }) {
 
   // Siempre cargar con docente_id — admin ve sus propios estudiantes por defecto
   useEffect(() => {
+    let ignore = false;
     const params = `?docente_id=${user.id}&role=${user.role==="admin"?"admin":"teacher"}`;
     fetch(`/api/stats${params}`)
       .then(r=>r.json())
-      .then(d=>{ setStats(d); setLoading(false); })
-      .catch(()=>setLoading(false));
+      .then(d=>{ if(!ignore){ setStats(d); setLoading(false); } })
+      .catch(()=>{ if(!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [user?.id]);
 
   const todosEstudiantes = stats?.topEstudiantes || [];
@@ -1279,13 +1310,17 @@ function StudentProgressCard({ user }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let ignore = false;
     fetch(`/api/stats?docente_id=${user.docente_id||""}&role=student`)
       .then(r=>r.json())
       .then(d=>{
-        const yo = (d.topEstudiantes||[]).find(e=>String(e.estudiante_id)===String(user.id));
-        setDatos(yo||null); setLoading(false);
+        if(!ignore){
+          const yo = (d.topEstudiantes||[]).find(e=>String(e.estudiante_id)===String(user.id));
+          setDatos(yo||null); setLoading(false);
+        }
       })
-      .catch(()=>setLoading(false));
+      .catch(()=>{ if(!ignore) setLoading(false); });
+    return () => { ignore = true; };
   }, [user.id]);
 
   if (loading) return <div style={{ color:C.muted, fontSize:12, padding:12 }}>⏳ Cargando tu progreso...</div>;
@@ -1633,10 +1668,18 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const lv  = Math.floor(xp/50)+1;
   const pct = (xp%50)/50*100;
 
+  // Debounce saveProgress: espera 3s de inactividad antes de escribir en Supabase
+  const saveTimer = useRef(null);
   const addXP = (n) => {
     setXp(prev => {
       const nx = prev + n;
-      if (user?.id && !compact) saveProgress(user, nx, Math.floor(nx/50)+1, misionId, equipo);
+      if (user?.id && !compact) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(
+          () => saveProgress(user, nx, Math.floor(nx/50)+1, misionId, equipo),
+          3000
+        );
+      }
       return nx;
     });
     setXpAnim(n);
@@ -1710,7 +1753,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         saveChatMsg(user, "assistant", replyFinal, misionId, misionTitle||misionData?.title, xp+xpGanado, equipo?.nombre||null);
       }
     } catch(err) {
-      setMsgs(p => [...p, {role:"assistant", content:"⚠️ Error inesperado. Intenta de nuevo."}]);
+      setMsgs(p => [...p, {role:"assistant", content:"⚠️ Error de conexión. Verifica tu internet."}]);
     } finally {
       setLoading(false);
     }
@@ -1761,7 +1804,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
           <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", ...(m.role==="user"?{justifyContent:"flex-end",alignSelf:"flex-end"}:{}), maxWidth:isMobile?"92%":"82%" }}>
             {m.role==="assistant"&&<div style={{ width:28,height:28,borderRadius:"50%",background:`${C.accent}15`,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:C.accent,flexShrink:0 }}>⬡</div>}
             <div style={{ background:m.role==="user"?C.user:C.surface, border:`1px solid ${m.role==="user"?C.accent2+"44":C.border}`, borderRadius:m.role==="user"?"12px 3px 12px 12px":"3px 12px 12px 12px", padding:isMobile?"10px 12px":"11px 14px" }}>
-              <div dangerouslySetInnerHTML={{ __html:m.content.replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>") }} style={{ fontSize:isMobile?13:13, lineHeight:1.7 }} />
+              <div dangerouslySetInnerHTML={{ __html:sanitizeChat(m.content||"") }} style={{ fontSize:isMobile?13:13, lineHeight:1.7 }} />
             </div>
             {m.role==="user"&&<div style={{ width:28,height:28,borderRadius:"50%",background:C.user,border:`1.5px solid ${C.accent2}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0 }}>{equipo?"👥":"👤"}</div>}
           </div>
@@ -1907,16 +1950,19 @@ function EquiposPanel({ user }) {
   const [filtroMision, setFiltroMision] = useState("todas");
 
   useEffect(() => {
+    let ignore = false;
     setLoading(true);
     const params = new URLSearchParams({ docente_id: user.id, role: user.role });
     fetch(`/api/equipos?${params}`)
       .then(r => r.json())
       .then(d => {
+        if(ignore) return;
         if (d.error) setError(d.error);
         setEquipos(d.equipos || []);
         setLoading(false);
       })
-      .catch(e => { setError(e.message); setLoading(false); });
+      .catch(e => { if(!ignore){ setError(e.message); setLoading(false); } });
+    return () => { ignore = true; };
   }, [user.id]);
 
   // Grados y grupos disponibles (solo de los equipos existentes)
