@@ -1942,7 +1942,9 @@ function EquiposPanel({ user }) {
   const [equipos, setEquipos]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
-  const [selEquipo, setSelEquipo] = useState(null);
+  const [selEquipo, setSelEquipo]             = useState(null);
+  const [confirmEliminar, setConfirmEliminar] = useState(false);
+  const [eliminando, setEliminando]           = useState(false);
 
   // Filtros cascada: grado → grupo → misión
   const [filtroGrado,  setFiltroGrado]  = useState("todos");
@@ -1981,6 +1983,30 @@ function EquiposPanel({ user }) {
 
   const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
 
+  const handleEliminar = async () => {
+    if (!selEquipo) return;
+    setEliminando(true);
+    try {
+      const r = await fetch("/api/equipos", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: selEquipo.nombre, docente_id: user.id }),
+      });
+      const d = await r.json();
+      if (d.error) {
+        alert("Error al eliminar: " + d.error);
+      } else {
+        setEquipos(prev => prev.filter(e => e.nombre !== selEquipo.nombre));
+        setSelEquipo(null);
+        setConfirmEliminar(false);
+      }
+    } catch(e) {
+      alert("Error de conexión al eliminar el equipo.");
+    } finally {
+      setEliminando(false);
+    }
+  };
+
   // ── Vista detalle equipo ─────────────────────────────────────
   if (selEquipo) {
     const eq = selEquipo;
@@ -1988,11 +2014,19 @@ function EquiposPanel({ user }) {
       <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch",
         padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
 
-        <button onClick={() => setSelEquipo(null)}
-          style={{ marginBottom:16, background:"none", border:"none", color:C.muted,
-            cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
-          ← Volver a equipos
-        </button>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <button onClick={() => setSelEquipo(null)}
+            style={{ background:"none", border:"none", color:C.muted,
+              cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+            ← Volver a equipos
+          </button>
+          <button onClick={() => setConfirmEliminar(true)}
+            style={{ padding:"7px 14px", borderRadius:10, border:"1px solid #ef444455",
+              background:"#ef444411", color:"#ef4444", cursor:"pointer", fontSize:12,
+              fontWeight:700, display:"flex", alignItems:"center", gap:6 }}>
+            🗑️ Eliminar equipo
+          </button>
+        </div>
 
         {/* Cabecera */}
         <div style={{ background:`linear-gradient(135deg,${C.card},${C.surface})`,
@@ -2083,6 +2117,48 @@ function EquiposPanel({ user }) {
           })}
         </div>
       </div>
+
+      {/* ╔══════════════════════════════════════════╗
+          ║  MODAL — Confirmar eliminación de equipo  ║
+          ╚══════════════════════════════════════════╝ */}
+      {confirmEliminar && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:500,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:"#150000", border:"2px solid #ef4444", borderRadius:20,
+            padding:"32px 26px", maxWidth:400, width:"100%", textAlign:"center",
+            boxShadow:"0 0 50px #ef444444", animation:"popIn .25s ease" }}>
+            <div style={{ fontSize:50, marginBottom:12 }}>⚠️</div>
+            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:16, color:"#ef4444",
+              fontWeight:900, marginBottom:10, letterSpacing:2 }}>
+              ELIMINAR EQUIPO
+            </div>
+            <div style={{ fontSize:14, color:"#fca5a5", lineHeight:1.9, marginBottom:8 }}>
+              ¿Eliminar el equipo <strong style={{color:"#fff"}}>"{selEquipo?.nombre}"</strong>?
+            </div>
+            <div style={{ fontSize:12, padding:"12px 16px", background:"#2a0000",
+              border:"1px solid #3f0000", borderRadius:12, marginBottom:22, lineHeight:1.8, color:"#fca5a5" }}>
+              🗑️ Se eliminarán <strong>todos los mensajes del chat</strong> y el
+              <strong> registro de progreso</strong> de los {selEquipo?.num_integrantes} integrante(s).<br/>
+              <span style={{color:"#7f1d1d", fontSize:11}}>Esta acción no se puede deshacer.</span>
+            </div>
+            <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
+              <button onClick={() => setConfirmEliminar(false)} disabled={eliminando}
+                style={{ padding:"11px 24px", borderRadius:12, border:`1px solid ${C.border}`,
+                  background:"transparent", color:C.muted, cursor:"pointer", fontWeight:600, fontSize:13 }}>
+                Cancelar
+              </button>
+              <button onClick={handleEliminar} disabled={eliminando}
+                style={{ padding:"11px 24px", borderRadius:12, border:"none",
+                  background:eliminando?"#7f1d1d":"linear-gradient(135deg,#ef4444,#dc2626)",
+                  color:"#fff", cursor:eliminando?"not-allowed":"pointer",
+                  fontWeight:800, fontSize:13, minWidth:120 }}>
+                {eliminando ? "⏳ Eliminando..." : "🗑️ Sí, eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
     );
   }
 
