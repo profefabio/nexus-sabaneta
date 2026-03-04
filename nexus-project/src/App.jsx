@@ -955,11 +955,13 @@ function AdminView({ user, onLogout }) {
   return (
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
-      {id:"missions",icon:"🗺️",label:"Misiones"},{id:"chats",icon:"💬",label:"Informes Chat"},{id:"users",icon:"👥",label:"Usuarios"},
+      {id:"missions",icon:"🗺️",label:"Misiones"},{id:"equipos",icon:"👥",label:"Equipos"},
+      {id:"chats",icon:"💬",label:"Informes Chat"},{id:"users",icon:"🔑",label:"Usuarios"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
       {tab==="progreso"&&<ProgresoPanel user={user} />}
       {tab==="missions"&&<MisionesPanel user={user} misiones={misiones} setMisiones={setMisiones} loadingM={loadingM} />}
+      {tab==="equipos"&&<EquiposPanel user={user} />}
       {tab==="chats"&&<ChatInformePanel user={user} />}
       {tab==="users"&&<AdminUsuarios />}
     </Layout>
@@ -978,11 +980,13 @@ function TeacherView({ user, onLogout }) {
   return (
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
-      {id:"missions",icon:"🗺️",label:"Mis Misiones"},{id:"chats",icon:"💬",label:"Informes Chat"},{id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
+      {id:"missions",icon:"🗺️",label:"Mis Misiones"},{id:"equipos",icon:"👥",label:"Equipos"},
+      {id:"chats",icon:"💬",label:"Informes Chat"},{id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
       {tab==="progreso"&&<ProgresoPanel user={user} />}
       {tab==="missions"&&<MisionesPanel user={user} misiones={misiones} setMisiones={setMisiones} loadingM={loadingM} />}
+      {tab==="equipos"&&<EquiposPanel user={user} />}
       {tab==="chats"&&<ChatInformePanel user={user} />}
       {tab==="config"&&(
         <Page title="⚙️ Configura NEXUS">
@@ -1884,6 +1888,232 @@ function MissionMap({ misiones, onSelect }) {
       ))}</div>}
     </div>
   ))}</div>;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// EQUIPOS PANEL — Lista de equipos con integrantes y resumen
+// ═══════════════════════════════════════════════════════════════
+function EquiposPanel({ user }) {
+  const isMobile = useIsMobile();
+  const [equipos, setEquipos]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [selEquipo, setSelEquipo] = useState(null);
+  const [filtroMision, setFiltroMision] = useState("todas");
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams({ docente_id: user.id, role: user.role });
+    fetch(`/api/equipos?${params}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) setError(d.error);
+        setEquipos(d.equipos || []);
+        setLoading(false);
+      })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, [user.id]);
+
+  // Todas las misiones únicas de todos los equipos
+  const todasMisiones = [...new Map(
+    equipos.flatMap(e => e.misiones).map(m => [m.id, m])
+  ).values()];
+
+  const equiposFiltrados = filtroMision === "todas"
+    ? equipos
+    : equipos.filter(e => e.misiones.some(m => m.id === filtroMision));
+
+  // ── Vista detalle de un equipo ───────────────────────────────
+  if (selEquipo) {
+    const eq = selEquipo;
+    const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
+    return (
+      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
+        <button onClick={() => setSelEquipo(null)}
+          style={{ marginBottom:16, background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+          ← Volver a equipos
+        </button>
+
+        {/* Cabecera del equipo */}
+        <div style={{ background:`linear-gradient(135deg,${C.card},${C.surface})`, border:`1px solid ${C.accent2}55`, borderRadius:18, padding:"22px 20px", marginBottom:18 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
+            <div style={{ width:52, height:52, borderRadius:16, background:`${C.accent2}20`, border:`2px solid ${C.accent2}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, flexShrink:0 }}>👥</div>
+            <div>
+              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?16:20, fontWeight:900, color:C.accent2 }}>{eq.nombre}</div>
+              <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>
+                {eq.num_integrantes} integrante{eq.num_integrantes!==1?"s":""} · Última actividad: {new Date(eq.ultima_actividad).toLocaleDateString("es-CO")}
+              </div>
+            </div>
+          </div>
+
+          {/* Stats del equipo */}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
+            {[
+              ["👥","Integrantes", eq.num_integrantes, C.accent2],
+              ["⭐","XP total", eq.xp_equipo, "#f97316"],
+              ["🏆","Nota prom.", eq.nota_promedio.toFixed(1), notaColor2(eq.nota_promedio)],
+            ].map(([ic,lb,val,col]) => (
+              <div key={lb} style={{ background:C.bg, borderRadius:12, padding:"12px 10px", textAlign:"center", border:`1px solid ${col}33` }}>
+                <div style={{ fontSize:18, marginBottom:4 }}>{ic}</div>
+                <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?16:20, fontWeight:900, color:col }}>{val}</div>
+                <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{lb}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Misiones trabajadas */}
+        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:18, marginBottom:16 }}>
+          <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>🗺️ Misiones trabajadas</div>
+          {eq.misiones.length === 0
+            ? <div style={{ fontSize:12, color:C.muted }}>Sin misiones registradas.</div>
+            : eq.misiones.map((m, i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:C.surface, borderRadius:10, marginBottom:6, border:`1px solid ${m.color||C.border}33` }}>
+                <span style={{ fontSize:18 }}>{m.icon}</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:600, color:m.color||C.accent }}>{m.title}</div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{m.mensajes} mensajes en el chat</div>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Integrantes individuales */}
+        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:18 }}>
+          <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>🎓 Desempeño individual</div>
+          {eq.integrantes.map((int, i) => {
+            const nc = notaColor2(int.nota);
+            return (
+              <div key={int.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:C.surface, borderRadius:12, marginBottom:8, border:`1px solid ${nc}22` }}>
+                <div style={{ width:36, height:36, borderRadius:"50%", background:`${nc}20`, border:`2px solid ${nc}55`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Orbitron',monospace", fontWeight:900, fontSize:13, color:nc, flexShrink:0 }}>
+                  {i===0?"⭐":"🎓"}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {int.nombre} {i===0 && <span style={{ fontSize:10, color:C.accent, marginLeft:6, fontWeight:400 }}>(líder)</span>}
+                  </div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{int.xp_total} XP</div>
+                </div>
+                <div style={{ textAlign:"right", flexShrink:0 }}>
+                  <div style={{ fontFamily:"'Orbitron',monospace", fontSize:22, fontWeight:900, color:nc, lineHeight:1 }}>{int.nota.toFixed(1)}</div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>nota</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Vista lista de equipos ────────────────────────────────────
+  const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
+
+  return (
+    <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
+      <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>👥 Equipos</h1>
+      <p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>Equipos formados por los estudiantes en sus sesiones de chat.</p>
+
+      {loading && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando equipos...</div>}
+      {error   && <div style={{ background:"#ff444422", border:"1px solid #ff444444", color:"#ff7777", padding:"10px 14px", borderRadius:8, fontSize:12, marginBottom:14 }}>⚠️ {error}</div>}
+
+      {!loading && equipos.length === 0 && !error && (
+        <div style={{ background:`${C.accent2}10`, border:`1px solid ${C.accent2}33`, borderRadius:14, padding:"30px 20px", textAlign:"center" }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>👥</div>
+          <div style={{ fontSize:15, fontWeight:800, color:C.accent2, marginBottom:8 }}>Aún no hay equipos registrados</div>
+          <div style={{ fontSize:12, color:C.muted, lineHeight:1.8 }}>
+            Los equipos aparecen aquí cuando los estudiantes los crean desde la pestaña <strong style={{color:C.accent}}>Mi Equipo</strong> y trabajan en el chat. 🚀
+          </div>
+        </div>
+      )}
+
+      {!loading && equipos.length > 0 && (
+        <>
+          {/* Resumen rápido */}
+          <div style={{ display:"grid", gridTemplateColumns: isMobile?"1fr 1fr":"repeat(3,1fr)", gap:10, marginBottom:18 }}>
+            {[
+              ["👥","Equipos",equipos.length, C.accent2],
+              ["🎓","Estudiantes",equipos.reduce((s,e)=>s+e.num_integrantes,0), C.accent3],
+              ["🏆","Nota promedio",(equipos.reduce((s,e)=>s+e.nota_promedio,0)/equipos.length).toFixed(1), "#f97316"],
+            ].map(([ic,lb,val,col]) => (
+              <div key={lb} style={{ background:C.card, border:`1px solid ${col}33`, borderRadius:12, padding:"14px 12px", textAlign:"center" }}>
+                <div style={{ fontSize:20, marginBottom:5 }}>{ic}</div>
+                <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?18:22, fontWeight:900, color:col }}>{val}</div>
+                <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>{lb}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filtro por misión */}
+          {todasMisiones.length > 1 && (
+            <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginBottom:14 }}>
+              {[{id:"todas",title:"Todas",color:C.accent}, ...todasMisiones].map(m => (
+                <button key={m.id} onClick={() => setFiltroMision(m.id)}
+                  style={{ padding:"5px 12px", borderRadius:20, fontSize:11, cursor:"pointer", fontFamily:"inherit",
+                    fontWeight: filtroMision===m.id ? 700 : 400,
+                    border:`1px solid ${filtroMision===m.id ? m.color : C.border}`,
+                    background: filtroMision===m.id ? `${m.color}22` : "transparent",
+                    color: filtroMision===m.id ? m.color : C.muted }}>
+                  {m.title}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Lista de equipos */}
+          {equiposFiltrados.map((eq, idx) => (
+            <div key={eq.nombre}
+              onClick={() => setSelEquipo(eq)}
+              style={{ background:C.card, border:`1px solid ${notaColor2(eq.nota_promedio)}33`, borderRadius:16, padding:"16px 18px", marginBottom:12, cursor:"pointer", transition:"border-color .15s, transform .1s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = notaColor2(eq.nota_promedio)+"88"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = notaColor2(eq.nota_promedio)+"33"; e.currentTarget.style.transform = ""; }}
+            >
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                {/* Posición */}
+                <div style={{ fontFamily:"'Orbitron',monospace", color: idx===0?"#ffd700":idx===1?"#c0c0c0":idx===2?"#cd7f32":C.muted, fontWeight:900, fontSize:12, width:24, flexShrink:0 }}>
+                  #{idx+1}
+                </div>
+
+                {/* Avatar + nombre */}
+                <div style={{ width:42, height:42, borderRadius:13, background:`${C.accent2}18`, border:`1.5px solid ${C.accent2}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
+                  👥
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:800, fontSize:isMobile?14:15, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {eq.nombre}
+                  </div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:3, display:"flex", gap:8, flexWrap:"wrap" }}>
+                    <span>🎓 {eq.num_integrantes} integrante{eq.num_integrantes!==1?"s":""}</span>
+                    <span>⭐ {eq.xp_equipo} XP</span>
+                    <span>🗓️ {new Date(eq.ultima_actividad).toLocaleDateString("es-CO")}</span>
+                  </div>
+                  {/* Chips de misiones */}
+                  <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginTop:6 }}>
+                    {eq.misiones.map((m,i) => (
+                      <span key={i} style={{ fontSize:9, padding:"2px 7px", borderRadius:20, background:`${m.color||C.accent}22`, color:m.color||C.accent, fontWeight:600 }}>
+                        {m.icon} {m.title}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Nota */}
+                <div style={{ textAlign:"center", flexShrink:0 }}>
+                  <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?22:28, fontWeight:900, color:notaColor2(eq.nota_promedio), lineHeight:1 }}>
+                    {eq.nota_promedio.toFixed(1)}
+                  </div>
+                  <div style={{ fontSize:9, color:C.muted, marginTop:3 }}>nota prom.</div>
+                  <div style={{ fontSize:10, color:C.accent, marginTop:4 }}>Ver →</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
 }
 
 // ── Shared components ──
