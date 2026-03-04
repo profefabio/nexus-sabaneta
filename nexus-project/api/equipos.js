@@ -1,22 +1,89 @@
-// api/equipos.js — Equipos con grado/grupo para filtros
+// api/equipos.js — Equipos con grado/grupo para filtros + DELETE con borrado total
 const { createClient } = require("@supabase/supabase-js");
 
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
+    return res.status(200).json({ error: "Faltan variables de entorno" });
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+  // ═══════════════════════════════════════════════════════
+  // DELETE — Eliminar equipo: chats + progreso de todos los integrantes
+  // ═══════════════════════════════════════════════════════
+  if (req.method === "DELETE") {
+    const { nombre, docente_id } = req.body;
+    if (!nombre) return res.status(200).json({ error: "Falta el nombre del equipo" });
+
+    try {
+      // 1. Obtener todas las misiones del docente para filtrar correctamente
+      let misionIds = null;
+      if (docente_id) {
+        const { data: misiones } = await supabase
+          .from("nexus_misiones")
+          .select("id")
+          .eq("docente_id", docente_id);
+        misionIds = (misiones || []).map(m => m.id);
+      }
+
+      // 2. Obtener los estudiante_id únicos del equipo desde nexus_chats
+      let qIds = supabase
+        .from("nexus_chats")
+        .select("estudiante_id")
+        .eq("equipo_nombre", nombre);
+      if (misionIds && misionIds.length > 0) qIds = qIds.in("mision_id", misionIds);
+
+      const { data: chatRows, error: idErr } = await qIds;
+      if (idErr) return res.status(200).json({ error: idErr.message });
+
+      const estudianteIds = [...new Set((chatRows || []).map(r => String(r.estudiante_id)))];
+
+      // 3. Borrar todos los mensajes del chat del equipo
+      let qDelChats = supabase
+        .from("nexus_chats")
+        .delete()
+        .eq("equipo_nombre", nombre);
+      if (misionIds && misionIds.length > 0) qDelChats = qDelChats.in("mision_id", misionIds);
+
+      const { error: chatDelErr } = await qDelChats;
+      if (chatDelErr) return res.status(200).json({ error: "Error al borrar chats: " + chatDelErr.message });
+
+      // 4. Borrar el progreso de todos los integrantes del equipo
+      if (estudianteIds.length > 0) {
+        let qDelProg = supabase
+          .from("nexus_progreso")
+          .delete()
+          .in("estudiante_id", estudianteIds);
+        if (misionIds && misionIds.length > 0) qDelProg = qDelProg.in("mision_id", misionIds);
+
+        const { error: progDelErr } = await qDelProg;
+        if (progDelErr) return res.status(200).json({ error: "Error al borrar progreso: " + progDelErr.message });
+      }
+
+      return res.status(200).json({
+        success: true,
+        mensaje: `Equipo "${nombre}" eliminado. ${estudianteIds.length} integrante(s) afectados.`,
+        integrantes_afectados: estudianteIds.length,
+      });
+
+    } catch (err) {
+      return res.status(200).json({ error: err.message });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // GET — Lista de equipos con grado/grupo
+  // ═══════════════════════════════════════════════════════
   if (req.method !== "GET")
     return res.status(200).json({ error: "Método no permitido", equipos: [] });
 
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
-    return res.status(200).json({ error: "Faltan variables de entorno", equipos: [] });
-
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
   const { docente_id } = req.query;
 
   try {
-    // 1. Misiones del docente
     let misionIds = null;
     let misionesMap = {};
     if (docente_id) {
@@ -30,7 +97,6 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ equipos: [], sinMisiones: true });
     }
 
-    // 2. Chats con equipo_nombre
     let qChats = supabase
       .from("nexus_chats")
       .select("estudiante_id, nombre_estudiante, equipo_nombre, mision_id, mision_title, xp_at_time, created_at")
@@ -43,28 +109,15 @@ module.exports = async function handler(req, res) {
     if (chatError) return res.status(200).json({ error: chatError.message, equipos: [] });
     if (!chats || chats.length === 0) return res.status(200).json({ equipos: [] });
 
-    // 3. Agrupar por equipo_nombre
     const equipoMap = {};
     chats.forEach(c => {
       const key = c.equipo_nombre;
       if (!equipoMap[key]) {
-        equipoMap[key] = {
-          nombre: key,
-          integrantes: {},
-          misiones: {},
-          ultima_actividad: c.created_at,
-        };
+        equipoMap[key] = { nombre: key, integrantes: {}, misiones: {}, ultima_actividad: c.created_at };
       }
       const eq = equipoMap[key];
-
       if (!eq.integrantes[c.estudiante_id]) {
-        eq.integrantes[c.estudiante_id] = {
-          id: c.estudiante_id,
-          nombre: c.nombre_estudiante,
-          xp_max: 0,
-          grado: null,
-          grupo: null,
-        };
+        eq.integrantes[c.estudiante_id] = { id: c.estudiante_id, nombre: c.nombre_estudiante, xp_max: 0, grado: null, grupo: null };
       }
       const int = eq.integrantes[c.estudiante_id];
       if ((c.xp_at_time || 0) > int.xp_max) int.xp_max = c.xp_at_time || 0;
@@ -83,10 +136,9 @@ module.exports = async function handler(req, res) {
       if (c.created_at > eq.ultima_actividad) eq.ultima_actividad = c.created_at;
     });
 
-    // 4. Progreso real + grado/grupo de cada estudiante
     const todosIds = [...new Set(chats.map(c => c.estudiante_id))];
     let progresoMap = {};
-    let gradoGrupoMap = {}; // { estudiante_id → { grado, grupo } }
+    let gradoGrupoMap = {};
 
     if (todosIds.length > 0) {
       let qProg = supabase
@@ -98,49 +150,29 @@ module.exports = async function handler(req, res) {
 
       const { data: progreso } = await qProg;
       (progreso || []).forEach(p => {
-        // XP acumulado por estudiante
-        if (!progresoMap[`total_${p.estudiante_id}`])
-          progresoMap[`total_${p.estudiante_id}`] = 0;
+        if (!progresoMap[`total_${p.estudiante_id}`]) progresoMap[`total_${p.estudiante_id}`] = 0;
         progresoMap[`total_${p.estudiante_id}`] += (p.xp_total || 0);
-
-        // Guardar grado/grupo (tomamos el primero que tenga datos)
-        if (!gradoGrupoMap[p.estudiante_id] && (p.grado || p.grupo)) {
+        if (!gradoGrupoMap[p.estudiante_id] && (p.grado || p.grupo))
           gradoGrupoMap[p.estudiante_id] = { grado: p.grado || "", grupo: p.grupo || "" };
-        }
       });
-    }
 
-    // 5. También buscar grado/grupo desde nexus_estudiantes si existe
-    if (todosIds.length > 0) {
       const { data: ests } = await supabase
         .from("nexus_estudiantes")
         .select("id, grado, grupo")
         .in("id", todosIds.map(String))
         .limit(500);
       (ests || []).forEach(e => {
-        if (e.grado || e.grupo) {
-          gradoGrupoMap[e.id] = { grado: e.grado || "", grupo: e.grupo || "" };
-        }
+        if (e.grado || e.grupo) gradoGrupoMap[e.id] = { grado: e.grado || "", grupo: e.grupo || "" };
       });
     }
 
-    // 6. Construir respuesta final
     const equipos = Object.values(equipoMap).map(eq => {
       const integrantes = Object.values(eq.integrantes).map((int, i) => {
         const gg = gradoGrupoMap[int.id] || { grado: "", grupo: "" };
         const xpTotal = progresoMap[`total_${int.id}`] || int.xp_max;
-        return {
-          id: int.id,
-          nombre: int.nombre,
-          xp_total: xpTotal,
-          nota: calcNota(xpTotal),
-          grado: gg.grado,
-          grupo: gg.grupo,
-          es_lider: i === 0,   // el primero registrado en chats es el líder
-        };
+        return { id: int.id, nombre: int.nombre, xp_total: xpTotal, nota: calcNota(xpTotal), grado: gg.grado, grupo: gg.grupo, es_lider: i === 0 };
       });
 
-      // Grado/grupo del equipo = el más frecuente entre integrantes
       const gradoCounts = {};
       const grupoCounts = {};
       integrantes.forEach(i => {
@@ -156,15 +188,11 @@ module.exports = async function handler(req, res) {
         : 1.0;
 
       return {
-        nombre: eq.nombre,
-        grado: gradoEquipo,
-        grupo: grupoEquipo,
+        nombre: eq.nombre, grado: gradoEquipo, grupo: grupoEquipo,
         integrantes: integrantes.sort((a,b) => b.xp_total - a.xp_total),
         misiones: Object.values(eq.misiones),
-        xp_equipo: xpEquipo,
-        nota_promedio: notaProm,
-        num_integrantes: integrantes.length,
-        ultima_actividad: eq.ultima_actividad,
+        xp_equipo: xpEquipo, nota_promedio: notaProm,
+        num_integrantes: integrantes.length, ultima_actividad: eq.ultima_actividad,
       };
     }).sort((a,b) => b.nota_promedio - a.nota_promedio || b.xp_equipo - a.xp_equipo);
 
