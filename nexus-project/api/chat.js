@@ -17,6 +17,10 @@ module.exports = async function handler(req, res) {
   if (!messages || !system)
     return res.status(200).json({ error: "Faltan parámetros en la solicitud." });
 
+  // Protección: system prompt no debe ser anormalmente grande
+  if (typeof system === "string" && system.length > 12000)
+    return res.status(200).json({ error: "Sistema de prompt demasiado largo." });
+
   // Limpiar y validar mensajes
   const clean = messages.filter(m => m.role === "user" || m.role === "assistant");
   let start = 0;

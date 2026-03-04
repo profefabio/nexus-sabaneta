@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
   // GET — obtener misiones (por docente, por estudiante o todas si es admin)
   if (req.method === "GET") {
     const { docente_id, role } = req.query;
-    let query = supabase.from("nexus_misiones").select("*").order("created_at", { ascending: true });
+    let query = supabase.from("nexus_misiones").select("*").order("created_at", { ascending: true }).limit(200);
 
     if (role === "admin") {
       // Admin ve TODAS las misiones — sin filtro

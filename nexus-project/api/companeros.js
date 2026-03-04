@@ -23,7 +23,8 @@ module.exports = async function handler(req, res) {
       .eq("grado", grado)
       .eq("grupo", grupo)
       .order("apellidos")
-      .order("nombres");
+      .order("nombres")
+      .limit(50);  // máx 50 compañeros por grupo
 
     if (error) return res.status(200).json({ error: error.message, companeros: [] });
 

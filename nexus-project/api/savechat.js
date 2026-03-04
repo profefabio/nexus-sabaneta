@@ -38,6 +38,8 @@ module.exports = async function handler(req, res) {
 
     if (!estudiante_id || !role || !content)
       return res.status(200).json({ error: "Faltan campos requeridos" });
+    // Limitar tamaño del contenido para evitar filas gigantes en Supabase
+    const safeContent = String(content).slice(0, 8000);
 
     const { error } = await supabase.from("nexus_chats").insert({
       estudiante_id: String(estudiante_id),
@@ -45,7 +47,7 @@ module.exports = async function handler(req, res) {
       mision_id: mision_id || null,
       mision_title: mision_title || null,
       role,
-      content,
+      content: safeContent,
       xp_at_time: xp_at_time || 0,
       equipo_nombre: equipo_nombre || null,
       created_at: new Date().toISOString(),

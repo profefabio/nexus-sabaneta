@@ -92,7 +92,8 @@ module.exports = async function handler(req, res) {
       let qProg = supabase
         .from("nexus_progreso")
         .select("estudiante_id, xp_total, nota, nivel, mision_id, grado, grupo")
-        .in("estudiante_id", todosIds.map(String));
+        .in("estudiante_id", todosIds.map(String))
+        .limit(2000);
       if (misionIds) qProg = qProg.in("mision_id", misionIds);
 
       const { data: progreso } = await qProg;
@@ -114,7 +115,8 @@ module.exports = async function handler(req, res) {
       const { data: ests } = await supabase
         .from("nexus_estudiantes")
         .select("id, grado, grupo")
-        .in("id", todosIds.map(String));
+        .in("id", todosIds.map(String))
+        .limit(500);
       (ests || []).forEach(e => {
         if (e.grado || e.grupo) {
           gradoGrupoMap[e.id] = { grado: e.grado || "", grupo: e.grupo || "" };

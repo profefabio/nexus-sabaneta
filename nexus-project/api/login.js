@@ -13,6 +13,10 @@ module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(200).json({ error: "Método no permitido" });
 
+  // Validar longitud de inputs para prevenir abusos
+  const bodyStr = JSON.stringify(req.body || {});
+  if (bodyStr.length > 2000) return res.status(200).json({ error: "Solicitud demasiado larga" });
+
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
     return res.status(200).json({ error: "Faltan variables SUPABASE_URL y SUPABASE_SERVICE_KEY en Vercel" });
   }
