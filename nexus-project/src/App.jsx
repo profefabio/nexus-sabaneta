@@ -2116,7 +2116,6 @@ function EquiposPanel({ user }) {
             );
           })}
         </div>
-      </div>
 
       {/* ╔══════════════════════════════════════════╗
           ║  MODAL — Confirmar eliminación de equipo  ║
@@ -2159,7 +2158,7 @@ function EquiposPanel({ user }) {
         </div>
       )}
     </div>
-    );
+  );
   }
 
   // ── Vista lista con filtros ──────────────────────────────────
