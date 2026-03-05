@@ -1,4 +1,4 @@
-// api/companeros.js — v3
+// api/companeros.js — v4 (fix: equipo_activo en try separado, no bloquea la lista)
 // GET ?grado=X&grupo=Y&exclude_id=Z  → lista compañeros + flag equipo_activo
 // GET ?restaurar=1&estudiante_id=X   → equipo activo del estudiante (restaurar sesión)
 const { createClient } = require("@supabase/supabase-js");
@@ -15,14 +15,11 @@ module.exports = async function handler(req, res) {
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-  // ── RESTAURAR EQUIPO AL INICIAR SESIÓN ───────────────────────
-  // GET /api/companeros?restaurar=1&estudiante_id=X
+  // ── RESTAURAR EQUIPO AL INICIAR SESIÓN ──────────────────────
   if (req.query.restaurar === "1") {
     const { estudiante_id } = req.query;
     if (!estudiante_id) return res.status(200).json({ equipo: null });
-
     try {
-      // Buscar el equipo más reciente de este estudiante (últimos 90 días)
       const hace90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       const { data: rows } = await supabase
         .from("nexus_chats")
@@ -34,10 +31,8 @@ module.exports = async function handler(req, res) {
         .limit(1);
 
       if (!rows || rows.length === 0) return res.status(200).json({ equipo: null });
-
       const nombreEquipo = rows[0].equipo_nombre;
 
-      // Buscar todos los integrantes del equipo (otros que no son el líder)
       const { data: integrantesRows } = await supabase
         .from("nexus_chats")
         .select("estudiante_id, nombre_estudiante")
@@ -46,13 +41,11 @@ module.exports = async function handler(req, res) {
         .order("created_at", { ascending: true })
         .limit(100);
 
-      // Deduplicar integrantes
       const seen = new Set();
       const integrantes = [];
       (integrantesRows || []).forEach(r => {
         if (!seen.has(String(r.estudiante_id))) {
           seen.add(String(r.estudiante_id));
-          // Separar nombres/apellidos: los primeros dos tokens = nombres, resto = apellidos
           const partes = (r.nombre_estudiante || "").split(" ");
           integrantes.push({
             id: r.estudiante_id,
@@ -61,20 +54,18 @@ module.exports = async function handler(req, res) {
           });
         }
       });
-
-      return res.status(200).json({
-        equipo: { nombre: nombreEquipo, integrantes }
-      });
+      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes } });
     } catch (err) {
-      return res.status(200).json({ equipo: null, error: err.message });
+      return res.status(200).json({ equipo: null });
     }
   }
 
-  // ── LISTA DE COMPAÑEROS (flujo normal) ───────────────────────
-  // GET /api/companeros?grado=X&grupo=Y&exclude_id=Z
+  // ── LISTA DE COMPAÑEROS ──────────────────────────────────────
   const { grado, grupo, exclude_id } = req.query;
   if (!grado || !grupo) return res.status(200).json({ error: "Faltan grado y grupo", companeros: [] });
 
+  // 1. Obtener lista de estudiantes del mismo grado/grupo
+  let lista = [];
   try {
     const { data, error } = await supabase
       .from("nexus_estudiantes")
@@ -86,14 +77,18 @@ module.exports = async function handler(req, res) {
       .limit(60);
 
     if (error) return res.status(200).json({ error: error.message, companeros: [] });
+    lista = (data || []).filter(e => String(e.id) !== String(exclude_id));
+  } catch (err) {
+    return res.status(200).json({ error: err.message, companeros: [] });
+  }
 
-    let lista = (data || []).filter(e => String(e.id) !== String(exclude_id));
-    if (lista.length === 0) return res.status(200).json({ companeros: [] });
+  if (lista.length === 0) return res.status(200).json({ companeros: [] });
 
-    // Detectar si cada compañero ya está en un equipo activo (últimos 60 días)
+  // 2. Detectar equipo activo — en bloque separado para no bloquear la lista si falla
+  const equipoActivoMap = {};
+  try {
     const listaIds = lista.map(e => String(e.id));
     const hace60 = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-
     const { data: equipoRows } = await supabase
       .from("nexus_chats")
       .select("estudiante_id, equipo_nombre")
@@ -103,19 +98,18 @@ module.exports = async function handler(req, res) {
       .order("created_at", { ascending: false })
       .limit(200);
 
-    const equipoActivoMap = {};
     (equipoRows || []).forEach(row => {
       const id = String(row.estudiante_id);
       if (!equipoActivoMap[id]) equipoActivoMap[id] = row.equipo_nombre;
     });
-
-    lista = lista.map(e => ({
-      ...e,
-      equipo_activo: equipoActivoMap[String(e.id)] || null,
-    }));
-
-    return res.status(200).json({ companeros: lista });
-  } catch (err) {
-    return res.status(200).json({ error: err.message, companeros: [] });
+  } catch (_) {
+    // Si falla la detección de equipo, simplemente no mostramos el flag — pero SÍ devolvemos los compañeros
   }
+
+  const result = lista.map(e => ({
+    ...e,
+    equipo_activo: equipoActivoMap[String(e.id)] || null,
+  }));
+
+  return res.status(200).json({ companeros: result });
 };
