@@ -1936,15 +1936,19 @@ function MissionMap({ misiones, onSelect }) {
 
 // ═══════════════════════════════════════════════════════════════
 // EQUIPOS PANEL — Lista de equipos con filtro por grado y grupo
+// v2: Detalle completo al hacer clic + informe de actividad
 // ═══════════════════════════════════════════════════════════════
 function EquiposPanel({ user }) {
   const isMobile = useIsMobile();
-  const [equipos, setEquipos]     = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
-  const [selEquipo, setSelEquipo]             = useState(null);
+  const [equipos, setEquipos]               = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [error, setError]                   = useState(null);
+  const [selEquipo, setSelEquipo]           = useState(null);
+  const [detalle, setDetalle]               = useState(null);
+  const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [confirmEliminar, setConfirmEliminar] = useState(false);
   const [eliminando, setEliminando]           = useState(false);
+  const [tabDetalle, setTabDetalle]           = useState("resumen"); // resumen | integrantes | actividad
 
   // Filtros cascada: grado → grupo → misión
   const [filtroGrado,  setFiltroGrado]  = useState("todos");
@@ -1967,13 +1971,28 @@ function EquiposPanel({ user }) {
     return () => { ignore = true; };
   }, [user.id]);
 
-  // Grados y grupos disponibles (solo de los equipos existentes)
+  // Al seleccionar equipo, cargar detalle completo
+  const abrirDetalle = (eq) => {
+    setSelEquipo(eq);
+    setDetalle(null);
+    setTabDetalle("resumen");
+    setLoadingDetalle(true);
+    const params = new URLSearchParams({ docente_id: user.id, equipo: eq.nombre });
+    fetch(`/api/equipos?${params}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.detalle) setDetalle(d.detalle);
+        setLoadingDetalle(false);
+      })
+      .catch(() => setLoadingDetalle(false));
+  };
+
+  // Grados y grupos disponibles
   const gradosDisp = [...new Set(equipos.map(e => e.grado).filter(Boolean))].sort((a,b)=>Number(a)-Number(b));
   const gruposDisp = filtroGrado === "todos"
     ? [...new Set(equipos.map(e => e.grupo).filter(Boolean))].sort()
     : [...new Set(equipos.filter(e => e.grado === filtroGrado).map(e => e.grupo).filter(Boolean))].sort();
 
-  // Misiones de los equipos visibles
   const equiposFiltGrado = filtroGrado === "todos" ? equipos : equipos.filter(e => e.grado === filtroGrado);
   const equiposFiltGrupo = filtroGrupo === "todos" ? equiposFiltGrado : equiposFiltGrado.filter(e => e.grupo === filtroGrupo);
   const todasMisiones = [...new Map(equiposFiltGrupo.flatMap(e => e.misiones).map(m => [m.id, m])).values()];
@@ -1982,6 +2001,7 @@ function EquiposPanel({ user }) {
     : equiposFiltGrupo.filter(e => e.misiones.some(m => m.id === filtroMision));
 
   const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
+  const barWidth   = (xp) => Math.min(100, Math.round((xp / 250) * 100)) + "%";
 
   const handleEliminar = async () => {
     if (!selEquipo) return;
@@ -1998,6 +2018,7 @@ function EquiposPanel({ user }) {
       } else {
         setEquipos(prev => prev.filter(e => e.nombre !== selEquipo.nombre));
         setSelEquipo(null);
+        setDetalle(null);
         setConfirmEliminar(false);
       }
     } catch(e) {
@@ -2007,17 +2028,26 @@ function EquiposPanel({ user }) {
     }
   };
 
-  // ── Vista detalle equipo ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // VISTA DETALLE
+  // ─────────────────────────────────────────────────────────
   if (selEquipo) {
     const eq = selEquipo;
+    const estudiantes = detalle?.estudiantes || eq.integrantes || [];
+    const misionesDetalle = detalle?.misiones || eq.misiones || [];
+    const actDiaria = detalle?.actividad_diaria || {};
+    const diasAct = Object.entries(actDiaria).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
+    const maxMsgs = Math.max(...diasAct.map(([,v])=>v), 1);
+
     return (
       <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch",
         padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
 
+        {/* Botones nav */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-          <button onClick={() => setSelEquipo(null)}
-            style={{ background:"none", border:"none", color:C.muted,
-              cursor:"pointer", fontSize:13, display:"flex", alignItems:"center", gap:6 }}>
+          <button onClick={() => { setSelEquipo(null); setDetalle(null); }}
+            style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:13,
+              display:"flex", alignItems:"center", gap:6 }}>
             ← Volver a equipos
           </button>
           <button onClick={() => setConfirmEliminar(true)}
@@ -2030,7 +2060,7 @@ function EquiposPanel({ user }) {
 
         {/* Cabecera */}
         <div style={{ background:`linear-gradient(135deg,${C.card},${C.surface})`,
-          border:`1px solid ${C.accent2}55`, borderRadius:18, padding:"22px 20px", marginBottom:18 }}>
+          border:`1px solid ${C.accent2}55`, borderRadius:18, padding:"22px 20px", marginBottom:16 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
             <div style={{ width:52,height:52,borderRadius:16,background:`${C.accent2}20`,
               border:`2px solid ${C.accent2}`,display:"flex",alignItems:"center",
@@ -2043,125 +2073,303 @@ function EquiposPanel({ user }) {
               <div style={{ fontSize:11, color:C.muted, marginTop:4, display:"flex", gap:10, flexWrap:"wrap" }}>
                 {eq.grado && <span>📚 Grado {eq.grado}</span>}
                 {eq.grupo && <span>👥 Grupo {eq.grupo}</span>}
-                <span>🗓️ {new Date(eq.ultima_actividad).toLocaleDateString("es-CO")}</span>
+                {detalle?.primera_actividad && <span>🗓️ Desde {new Date(detalle.primera_actividad).toLocaleDateString("es-CO")}</span>}
+                <span>🕐 Última actividad: {new Date(eq.ultima_actividad).toLocaleDateString("es-CO")}</span>
               </div>
             </div>
           </div>
 
-          {/* Stats */}
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8 }}>
             {[
-              ["👥","Integrantes", eq.num_integrantes, C.accent2],
-              ["⭐","XP total",    eq.xp_equipo,       "#f97316"],
-              ["🏆","Nota prom.",  eq.nota_promedio.toFixed(1), notaColor2(eq.nota_promedio)],
+              ["👥","Integrantes", eq.num_integrantes,                                      C.accent2],
+              ["⭐","XP total",    eq.xp_equipo,                                            "#f97316"],
+              ["🏆","Nota prom.",  eq.nota_promedio.toFixed(1),                             notaColor2(eq.nota_promedio)],
+              ["💬","Mensajes",    loadingDetalle ? "..." : (detalle?.total_mensajes ?? "—"),"#06b6d4"],
             ].map(([ic,lb,val,col]) => (
-              <div key={lb} style={{ background:C.bg,borderRadius:12,padding:"12px 10px",
-                textAlign:"center",border:`1px solid ${col}33` }}>
-                <div style={{ fontSize:18, marginBottom:4 }}>{ic}</div>
-                <div style={{ fontFamily:"'Orbitron',monospace",fontSize:isMobile?16:20,
-                  fontWeight:900,color:col }}>{val}</div>
-                <div style={{ fontSize:10,color:C.muted,marginTop:3 }}>{lb}</div>
+              <div key={lb} style={{ background:C.bg, borderRadius:12, padding:"10px 8px",
+                textAlign:"center", border:`1px solid ${col}33` }}>
+                <div style={{ fontSize:16, marginBottom:3 }}>{ic}</div>
+                <div style={{ fontFamily:"'Orbitron',monospace", fontSize:isMobile?15:18,
+                  fontWeight:900, color:col }}>{val}</div>
+                <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>{lb}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Misiones trabajadas */}
-        <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18,marginBottom:16 }}>
-          <div style={{ fontSize:14,fontWeight:700,marginBottom:12 }}>🗺️ Misiones trabajadas</div>
-          {eq.misiones.length === 0
-            ? <div style={{ fontSize:12,color:C.muted }}>Sin misiones registradas.</div>
-            : eq.misiones.map((m,i) => (
-              <div key={i} style={{ display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
-                background:C.surface,borderRadius:10,marginBottom:6,border:`1px solid ${m.color||C.border}33` }}>
-                <span style={{ fontSize:18 }}>{m.icon}</span>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontSize:13,fontWeight:600,color:m.color||C.accent }}>{m.title}</div>
-                  <div style={{ fontSize:10,color:C.muted,marginTop:2 }}>{m.mensajes} mensajes en el chat</div>
-                </div>
-              </div>
-            ))
-          }
+        {/* Tabs de detalle */}
+        <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
+          {[["resumen","📋 Resumen"],["integrantes","🎓 Integrantes"],["actividad","📈 Actividad"]].map(([id,lbl]) => (
+            <button key={id} onClick={()=>setTabDetalle(id)}
+              style={{ padding:"8px 16px", borderRadius:20, border:`1.5px solid ${tabDetalle===id?C.accent:C.border}`,
+                background:tabDetalle===id?`${C.accent}22`:"transparent",
+                color:tabDetalle===id?C.accent:C.muted, fontWeight:tabDetalle===id?700:400,
+                fontSize:12, cursor:"pointer", fontFamily:"inherit" }}>
+              {lbl}
+            </button>
+          ))}
         </div>
 
-        {/* Integrantes */}
-        <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:18 }}>
-          <div style={{ fontSize:14,fontWeight:700,marginBottom:12 }}>🎓 Desempeño individual</div>
-          {eq.integrantes.map((int,i) => {
-            const nc = notaColor2(int.nota);
-            return (
-              <div key={int.id} style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 14px",
-                background:C.surface,borderRadius:12,marginBottom:8,border:`1px solid ${nc}22` }}>
-                <div style={{ width:36,height:36,borderRadius:"50%",background:`${nc}20`,
-                  border:`2px solid ${nc}55`,display:"flex",alignItems:"center",justifyContent:"center",
-                  fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:nc,flexShrink:0 }}>
-                  {i===0?"⭐":"🎓"}
+        {loadingDetalle && (
+          <div style={{ color:C.muted, fontSize:13, padding:"20px 0", textAlign:"center" }}>
+            ⏳ Cargando informe del equipo...
+          </div>
+        )}
+
+        {/* ── TAB: RESUMEN ── */}
+        {!loadingDetalle && tabDetalle === "resumen" && (
+          <>
+            {/* Misiones trabajadas */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:18, marginBottom:14 }}>
+              <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>🗺️ Misiones trabajadas</div>
+              {misionesDetalle.length === 0
+                ? <div style={{ fontSize:12, color:C.muted }}>Sin misiones registradas.</div>
+                : misionesDetalle.map((m,i) => (
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                    background:C.surface, borderRadius:10, marginBottom:8,
+                    border:`1px solid ${m.color||C.border}33` }}>
+                    <span style={{ fontSize:18 }}>{m.icon || "📋"}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:m.color||C.accent }}>{m.title}</div>
+                      <div style={{ fontSize:10, color:C.muted, marginTop:2 }}>
+                        {m.mensajes} mensajes · {m.participantes ?? m.estudiantes ?? "?"} participante(s)
+                      </div>
+                    </div>
+                    <div style={{ fontFamily:"'Orbitron',monospace", fontSize:11, color:C.muted }}>
+                      {m.mensajes}💬
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+
+            {/* Ranking rápido */}
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:18 }}>
+              <div style={{ fontSize:14, fontWeight:700, marginBottom:12 }}>🏅 Ranking del equipo</div>
+              {estudiantes.map((int_,i) => {
+                const nc = notaColor2(int_.nota);
+                return (
+                  <div key={int_.id} style={{ display:"flex", alignItems:"center", gap:10,
+                    padding:"10px 12px", background:C.surface, borderRadius:10, marginBottom:8,
+                    border:`1px solid ${nc}22` }}>
+                    <div style={{ fontFamily:"'Orbitron',monospace", fontWeight:900, fontSize:12,
+                      color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":C.muted,
+                      width:20, flexShrink:0, textAlign:"center" }}>#{i+1}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:700 }}>{int_.nombre}
+                        {i===0 && <span style={{ fontSize:10, color:"#ffd700", marginLeft:6 }}>⭐ Líder</span>}
+                      </div>
+                      <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>
+                        {int_.grado && `G${int_.grado}`}{int_.grupo && ` · Grp ${int_.grupo}`}
+                        {" · "}{int_.xp_total} XP
+                        {int_.mensajes_total != null && ` · ${int_.mensajes_total} mensajes`}
+                      </div>
+                    </div>
+                    <div style={{ fontFamily:"'Orbitron',monospace", fontSize:20, fontWeight:900, color:nc }}>{int_.nota?.toFixed(1)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* ── TAB: INTEGRANTES (detalle completo) ── */}
+        {!loadingDetalle && tabDetalle === "integrantes" && (
+          <div>
+            {estudiantes.map((est, i) => {
+              const nc = notaColor2(est.nota || 1);
+              const mEst = est.misiones || [];
+              return (
+                <div key={est.id} style={{ background:C.card, border:`1.5px solid ${nc}44`,
+                  borderRadius:16, padding:18, marginBottom:14 }}>
+                  {/* Header estudiante */}
+                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+                    <div style={{ width:42,height:42,borderRadius:"50%",background:`${nc}20`,
+                      border:`2px solid ${nc}55`,display:"flex",alignItems:"center",
+                      justifyContent:"center",fontFamily:"'Orbitron',monospace",fontWeight:900,
+                      fontSize:13,color:nc,flexShrink:0 }}>{i===0?"⭐":"🎓"}</div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:14, fontWeight:800 }}>{est.nombre}
+                        {i===0 && <span style={{ fontSize:10, color:C.accent, marginLeft:6 }}>(líder)</span>}
+                      </div>
+                      <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
+                        {est.grado && `Grado ${est.grado}`}{est.grupo && ` · Grupo ${est.grupo}`}
+                        {est.nivel && ` · Nivel ${est.nivel}`}
+                      </div>
+                    </div>
+                    <div style={{ textAlign:"right", flexShrink:0 }}>
+                      <div style={{ fontFamily:"'Orbitron',monospace", fontSize:28, fontWeight:900, color:nc, lineHeight:1 }}>{(est.nota||1).toFixed(1)}</div>
+                      <div style={{ fontSize:10, color:C.muted }}>nota</div>
+                    </div>
+                  </div>
+
+                  {/* Barra de XP */}
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                      <span style={{ fontSize:11, color:C.muted }}>⭐ {est.xp_total || 0} XP</span>
+                      <span style={{ fontSize:11, color:C.muted }}>{barWidth(est.xp_total || 0)} hacia meta (250 XP)</span>
+                    </div>
+                    <div style={{ background:C.surface, borderRadius:6, height:8, overflow:"hidden" }}>
+                      <div style={{ height:"100%", width:barWidth(est.xp_total||0),
+                        background:`linear-gradient(90deg,${nc},${nc}99)`, borderRadius:6,
+                        transition:"width .5s ease" }} />
+                    </div>
+                  </div>
+
+                  {/* Stats */}
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:14 }}>
+                    {[
+                      ["💬","Mensajes", est.mensajes_total || 0,    "#06b6d4"],
+                      ["🗺️","Misiones", mEst.length,                C.accent],
+                      ["⏰","Días activo", (() => {
+                          if (!est.primera_actividad || !est.ultima_actividad) return "—";
+                          const d1 = new Date(est.primera_actividad), d2 = new Date(est.ultima_actividad);
+                          return Math.max(1, Math.ceil((d2-d1)/(1000*60*60*24)));
+                        })(), "#a78bfa"],
+                    ].map(([ic,lb,val,col]) => (
+                      <div key={lb} style={{ background:C.surface, borderRadius:10, padding:"8px 6px",
+                        textAlign:"center", border:`1px solid ${col}22` }}>
+                        <div style={{ fontSize:14, marginBottom:2 }}>{ic}</div>
+                        <div style={{ fontFamily:"'Orbitron',monospace", fontSize:14, fontWeight:700, color:col }}>{val}</div>
+                        <div style={{ fontSize:9, color:C.muted }}>{lb}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Misiones por estudiante */}
+                  {mEst.length > 0 && (
+                    <div>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.muted, marginBottom:8,
+                        textTransform:"uppercase", letterSpacing:1 }}>Actividad por misión</div>
+                      {mEst.map((m, mi) => (
+                        <div key={mi} style={{ display:"flex", alignItems:"center", gap:8,
+                          padding:"7px 10px", background:C.bg, borderRadius:8, marginBottom:6 }}>
+                          <span style={{ fontSize:14 }}>📋</span>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:12, fontWeight:600, overflow:"hidden",
+                              textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.title}</div>
+                            <div style={{ fontSize:10, color:C.muted, marginTop:1 }}>
+                              {m.mensajes} mensajes · {m.xp_max} XP máx.
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Fechas */}
+                  {est.primera_actividad && (
+                    <div style={{ fontSize:10, color:C.muted, marginTop:10, paddingTop:10,
+                      borderTop:`1px solid ${C.border}`, display:"flex", gap:16 }}>
+                      <span>🗓️ Primera actividad: {new Date(est.primera_actividad).toLocaleDateString("es-CO")}</span>
+                      <span>🕐 Última: {new Date(est.ultima_actividad).toLocaleDateString("es-CO")}</span>
+                    </div>
+                  )}
                 </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>
-                    {int.nombre}
-                    {i===0 && <span style={{ fontSize:10,color:C.accent,marginLeft:6,fontWeight:400 }}>(líder)</span>}
-                  </div>
-                  <div style={{ fontSize:10,color:C.muted,marginTop:2 }}>
-                    {int.grado && `G${int.grado}`}{int.grupo && `·${int.grupo}`} · {int.xp_total} XP
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── TAB: ACTIVIDAD (gráfico de barras por día) ── */}
+        {!loadingDetalle && tabDetalle === "actividad" && (
+          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:18 }}>
+            <div style={{ fontSize:14, fontWeight:700, marginBottom:4 }}>📈 Actividad reciente del equipo</div>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:16 }}>Mensajes enviados por día (últimos 14 días activos)</div>
+
+            {diasAct.length === 0
+              ? <div style={{ fontSize:12, color:C.muted }}>Sin actividad registrada.</div>
+              : (
+                <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:120, paddingBottom:24, position:"relative" }}>
+                  {diasAct.map(([dia, cnt]) => (
+                    <div key={dia} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                      <div style={{ fontSize:10, color:C.muted }}>{cnt}</div>
+                      <div style={{ width:"100%", background:`${C.accent}33`, borderRadius:"4px 4px 0 0",
+                        height: Math.max(8, Math.round((cnt/maxMsgs)*90)) + "px",
+                        transition:"height .4s ease",
+                        background:`linear-gradient(180deg,${C.accent},${C.accent2})` }} />
+                      <div style={{ fontSize:9, color:C.muted, writingMode:"vertical-rl",
+                        transform:"rotate(180deg)", maxHeight:60, overflow:"hidden", textAlign:"center" }}>
+                        {dia.slice(5)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+
+            {/* Resumen de actividad */}
+            {detalle && (
+              <div style={{ marginTop:16, paddingTop:16, borderTop:`1px solid ${C.border}`,
+                display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:10 }}>
+                <div style={{ background:C.surface, borderRadius:10, padding:"10px 12px" }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>📅 Primera sesión</div>
+                  <div style={{ fontSize:13, fontWeight:700 }}>
+                    {detalle.primera_actividad ? new Date(detalle.primera_actividad).toLocaleDateString("es-CO") : "—"}
                   </div>
                 </div>
-                <div style={{ textAlign:"right",flexShrink:0 }}>
-                  <div style={{ fontFamily:"'Orbitron',monospace",fontSize:22,fontWeight:900,color:nc,lineHeight:1 }}>
-                    {int.nota.toFixed(1)}
+                <div style={{ background:C.surface, borderRadius:10, padding:"10px 12px" }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>🕐 Última sesión</div>
+                  <div style={{ fontSize:13, fontWeight:700 }}>
+                    {detalle.ultima_actividad ? new Date(detalle.ultima_actividad).toLocaleDateString("es-CO") : "—"}
                   </div>
-                  <div style={{ fontSize:10,color:C.muted,marginTop:2 }}>nota</div>
+                </div>
+                <div style={{ background:C.surface, borderRadius:10, padding:"10px 12px" }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>💬 Total mensajes</div>
+                  <div style={{ fontFamily:"'Orbitron',monospace", fontSize:18, fontWeight:900, color:"#06b6d4" }}>{detalle.total_mensajes}</div>
+                </div>
+                <div style={{ background:C.surface, borderRadius:10, padding:"10px 12px" }}>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>📊 Días con actividad</div>
+                  <div style={{ fontFamily:"'Orbitron',monospace", fontSize:18, fontWeight:900, color:C.accent }}>{Object.keys(actDiaria).length}</div>
                 </div>
               </div>
-            );
-          })}
-        </div>
+            )}
+          </div>
+        )}
 
-      {/* ╔══════════════════════════════════════════╗
-          ║  MODAL — Confirmar eliminación de equipo  ║
-          ╚══════════════════════════════════════════╝ */}
-      {confirmEliminar && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:500,
-          display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div style={{ background:"#150000", border:"2px solid #ef4444", borderRadius:20,
-            padding:"32px 26px", maxWidth:400, width:"100%", textAlign:"center",
-            boxShadow:"0 0 50px #ef444444", animation:"popIn .25s ease" }}>
-            <div style={{ fontSize:50, marginBottom:12 }}>⚠️</div>
-            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:16, color:"#ef4444",
-              fontWeight:900, marginBottom:10, letterSpacing:2 }}>
-              ELIMINAR EQUIPO
-            </div>
-            <div style={{ fontSize:14, color:"#fca5a5", lineHeight:1.9, marginBottom:8 }}>
-              ¿Eliminar el equipo <strong style={{color:"#fff"}}>"{selEquipo?.nombre}"</strong>?
-            </div>
-            <div style={{ fontSize:12, padding:"12px 16px", background:"#2a0000",
-              border:"1px solid #3f0000", borderRadius:12, marginBottom:22, lineHeight:1.8, color:"#fca5a5" }}>
-              🗑️ Se eliminarán <strong>todos los mensajes del chat</strong> y el
-              <strong> registro de progreso</strong> de los {selEquipo?.num_integrantes} integrante(s).<br/>
-              <span style={{color:"#7f1d1d", fontSize:11}}>Esta acción no se puede deshacer.</span>
-            </div>
-            <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
-              <button onClick={() => setConfirmEliminar(false)} disabled={eliminando}
-                style={{ padding:"11px 24px", borderRadius:12, border:`1px solid ${C.border}`,
-                  background:"transparent", color:C.muted, cursor:"pointer", fontWeight:600, fontSize:13 }}>
-                Cancelar
-              </button>
-              <button onClick={handleEliminar} disabled={eliminando}
-                style={{ padding:"11px 24px", borderRadius:12, border:"none",
-                  background:eliminando?"#7f1d1d":"linear-gradient(135deg,#ef4444,#dc2626)",
-                  color:"#fff", cursor:eliminando?"not-allowed":"pointer",
-                  fontWeight:800, fontSize:13, minWidth:120 }}>
-                {eliminando ? "⏳ Eliminando..." : "🗑️ Sí, eliminar"}
-              </button>
+        {/* MODAL Confirmar eliminación */}
+        {confirmEliminar && (
+          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:500,
+            display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+            <div style={{ background:"#150000", border:"2px solid #ef4444", borderRadius:20,
+              padding:"32px 26px", maxWidth:400, width:"100%", textAlign:"center",
+              boxShadow:"0 0 50px #ef444444", animation:"popIn .25s ease" }}>
+              <div style={{ fontSize:50, marginBottom:12 }}>⚠️</div>
+              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:16, color:"#ef4444",
+                fontWeight:900, marginBottom:10, letterSpacing:2 }}>ELIMINAR EQUIPO</div>
+              <div style={{ fontSize:14, color:"#fca5a5", lineHeight:1.9, marginBottom:8 }}>
+                ¿Eliminar el equipo <strong style={{color:"#fff"}}>"{selEquipo?.nombre}"</strong>?
+              </div>
+              <div style={{ fontSize:12, padding:"12px 16px", background:"#2a0000",
+                border:"1px solid #3f0000", borderRadius:12, marginBottom:22, lineHeight:1.8, color:"#fca5a5" }}>
+                🗑️ Se eliminarán <strong>todos los mensajes del chat</strong> y el
+                <strong> registro de progreso</strong> de los {selEquipo?.num_integrantes} integrante(s).<br/>
+                <span style={{color:"#7f1d1d", fontSize:11}}>Esta acción no se puede deshacer.</span>
+              </div>
+              <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
+                <button onClick={() => setConfirmEliminar(false)} disabled={eliminando}
+                  style={{ padding:"11px 24px", borderRadius:12, border:`1px solid ${C.border}`,
+                    background:"transparent", color:C.muted, cursor:"pointer", fontWeight:600, fontSize:13 }}>
+                  Cancelar
+                </button>
+                <button onClick={handleEliminar} disabled={eliminando}
+                  style={{ padding:"11px 24px", borderRadius:12, border:"none",
+                    background:eliminando?"#7f1d1d":"linear-gradient(135deg,#ef4444,#dc2626)",
+                    color:"#fff", cursor:eliminando?"not-allowed":"pointer",
+                    fontWeight:800, fontSize:13, minWidth:120 }}>
+                  {eliminando ? "⏳ Eliminando..." : "🗑️ Sí, eliminar"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
   }
 
-  // ── Vista lista con filtros ──────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // VISTA LISTA CON FILTROS
+  // ─────────────────────────────────────────────────────────
   return (
     <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch",
       padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
@@ -2169,6 +2377,7 @@ function EquiposPanel({ user }) {
       <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>👥 Equipos</h1>
       <p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>
         Equipos formados por los estudiantes. Filtra por grado, grupo y misión.
+        Haz clic en un equipo para ver el informe completo.
       </p>
 
       {loading && <div style={{ color:C.muted,fontSize:13 }}>⏳ Cargando equipos...</div>}
@@ -2190,7 +2399,7 @@ function EquiposPanel({ user }) {
 
       {!loading && equipos.length > 0 && (<>
 
-        {/* ── Filtro Grado ─────────────────────── */}
+        {/* Filtro Grado */}
         <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
           padding:"14px 16px",marginBottom:10 }}>
           <div style={{ fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",
@@ -2209,7 +2418,7 @@ function EquiposPanel({ user }) {
           </div>
         </div>
 
-        {/* ── Filtro Grupo (solo si hay grado) ─── */}
+        {/* Filtro Grupo */}
         {gruposDisp.length > 0 && (
           <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
             padding:"14px 16px",marginBottom:10 }}>
@@ -2230,7 +2439,7 @@ function EquiposPanel({ user }) {
           </div>
         )}
 
-        {/* ── Filtro Misión ─────────────────────── */}
+        {/* Filtro Misión */}
         {todasMisiones.length > 1 && (
           <div style={{ background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
             padding:"12px 16px",marginBottom:14 }}>
@@ -2251,7 +2460,7 @@ function EquiposPanel({ user }) {
           </div>
         )}
 
-        {/* ── Resumen de los equipos visibles ──── */}
+        {/* Resumen */}
         <div style={{ display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",
           gap:10,marginBottom:16 }}>
           {[
@@ -2271,18 +2480,18 @@ function EquiposPanel({ user }) {
           ))}
         </div>
 
-        {/* ── Lista de equipos ─────────────────── */}
+        {/* Lista de equipos */}
         {equiposFiltrados.length === 0
           ? <div style={{ color:C.muted,fontSize:13,padding:"20px 0",textAlign:"center" }}>
               Sin equipos para los filtros seleccionados.
             </div>
           : equiposFiltrados.map((eq, idx) => (
             <div key={eq.nombre}
-              onClick={() => setSelEquipo(eq)}
+              onClick={() => abrirDetalle(eq)}
               style={{ background:C.card,border:`1px solid ${notaColor2(eq.nota_promedio)}33`,
                 borderRadius:16,padding:"16px 18px",marginBottom:12,cursor:"pointer",transition:"all .15s" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor=notaColor2(eq.nota_promedio)+"88"; e.currentTarget.style.transform="translateY(-1px)"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor=notaColor2(eq.nota_promedio)+"33"; e.currentTarget.style.transform=""; }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor=notaColor2(eq.nota_promedio)+"88"; e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.boxShadow=`0 4px 20px ${notaColor2(eq.nota_promedio)}22`; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor=notaColor2(eq.nota_promedio)+"33"; e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; }}
             >
               <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                 <div style={{ fontFamily:"'Orbitron',monospace",color:idx===0?"#ffd700":idx===1?"#c0c0c0":idx===2?"#cd7f32":C.muted,
@@ -2318,7 +2527,7 @@ function EquiposPanel({ user }) {
                     {eq.nota_promedio.toFixed(1)}
                   </div>
                   <div style={{ fontSize:9,color:C.muted,marginTop:3 }}>nota prom.</div>
-                  <div style={{ fontSize:10,color:C.accent,marginTop:4 }}>Ver →</div>
+                  <div style={{ fontSize:10,color:C.accent,marginTop:4 }}>Ver informe →</div>
                 </div>
               </div>
             </div>
@@ -2328,6 +2537,7 @@ function EquiposPanel({ user }) {
     </div>
   );
 }
+
 
 // ── Shared components ──
 function Layout({ sidebar, children }) {
