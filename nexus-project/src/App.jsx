@@ -1884,19 +1884,20 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva
     if (!nombre.trim()) return;
     if (!misionEquipo) { alert("⚠️ Debes seleccionar una misión para activar el equipo."); return; }
     const nombreEquipo = nombre.trim();
-    const misionData = misiones?.find(m => m.id === misionEquipo);
+    const misionSel = misiones?.find(m => m.id === misionEquipo);
 
     setEquipo({ nombre: nombreEquipo, integrantes: seleccionados, misionId: misionEquipo });
-    // Activar la misión en el chat directamente
     if (setMisionActiva) setMisionActiva(misionEquipo);
     setSaved(true);
 
-    // Registrar el equipo + misión en nexus_chats para bloqueo inmediato
+    // Todos los integrantes incluyendo el líder
+    const todosIntegrantes = [
+      { id: user.id, nombre: user.name, grado: user.grade||"", grupo: user.group||"" },
+      ...seleccionados.map(c => ({ id: c.id, nombre: `${c.nombres} ${c.apellidos}`, grado: c.grado||"", grupo: c.grupo||"" }))
+    ];
+
     try {
-      const todosIntegrantes = [
-        { id: user.id, nombre: user.name },
-        ...seleccionados.map(c => ({ id: c.id, nombre: `${c.nombres} ${c.apellidos}` }))
-      ];
+      // 1. Guardar mensaje de sistema en nexus_chats (para bloqueo por misión)
       await Promise.all(todosIntegrantes.map(m =>
         fetch("/api/savechat", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -1904,11 +1905,28 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva
             estudiante_id: m.id,
             nombre_estudiante: m.nombre,
             mision_id: misionEquipo,
-            mision_title: misionData?.title || null,
+            mision_title: misionSel?.title || null,
             role: "system",
             content: `__equipo_registrado__:${nombreEquipo}:lider:${user.id}:mision:${misionEquipo}`,
             xp_at_time: 0,
             equipo_nombre: nombreEquipo,
+          })
+        })
+      ));
+
+      // 2. Guardar progreso inicial XP=0 en nexus_progreso (para que el docente vea el equipo)
+      await Promise.all(todosIntegrantes.map(m =>
+        fetch("/api/saveprogress", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            estudiante_id: m.id,
+            nombre_estudiante: m.nombre,
+            grado: m.grado,
+            grupo: m.grupo,
+            xp_total: 0,
+            nivel: 1,
+            mision_id: misionEquipo,
+            equipo: { nombre: nombreEquipo, integrantes: seleccionados },
           })
         })
       ));
