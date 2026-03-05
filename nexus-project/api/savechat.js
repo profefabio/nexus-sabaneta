@@ -22,6 +22,8 @@ module.exports = async function handler(req, res) {
       .limit(500);
 
     if (mision_id) q = q.eq("mision_id", mision_id);
+    // Excluir mensajes de sistema (registros de equipo)
+    q = q.neq("role", "system");
 
     // Filtro por reto: si reto_id="__libre__" traer los que tienen reto_id null
     if (reto_id !== undefined && reto_id !== null && reto_id !== "") {
