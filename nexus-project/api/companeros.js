@@ -33,8 +33,9 @@ module.exports = async function handler(req, res) {
       if (!rows || rows.length === 0) return res.status(200).json({ equipo: null });
       const nombreEquipo = rows[0].equipo_nombre;
 
-      // Extraer liderId del mensaje de sistema
+      // Extraer liderId y misionId del mensaje de sistema
       let liderId = null;
+      let misionId = null;
       try {
         const { data: sysMsg } = await supabase
           .from("nexus_chats")
@@ -44,9 +45,10 @@ module.exports = async function handler(req, res) {
           .order("created_at", { ascending: true })
           .limit(1);
         if (sysMsg?.length > 0) {
-          // formato: __equipo_registrado__:NOMBRE:lider:ID
+          // formato: __equipo_registrado__:NOMBRE:lider:ID:mision:MISION_ID
           const partes = (sysMsg[0].content || "").split(":");
           liderId = partes[3] || null;
+          misionId = partes[5] || null;
         }
       } catch(_) {}
 
@@ -72,7 +74,7 @@ module.exports = async function handler(req, res) {
           });
         }
       });
-      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes, liderId } });
+      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes, liderId, misionId } });
     } catch (err) {
       return res.status(200).json({ equipo: null });
     }
