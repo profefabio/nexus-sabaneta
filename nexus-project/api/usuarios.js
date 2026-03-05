@@ -35,11 +35,40 @@ module.exports = async function handler(req, res) {
   if (req.method === "POST") {
     const { accion } = req.body;
 
-    // Limpiar progreso
+    // Limpiar progreso (admin — borra todo)
     if (accion === "limpiar_progreso") {
-      const { error } = await supabase.from("nexus_progreso").delete().neq("id", 0);
-      if (error) return res.status(200).json({ error: error.message });
+      const { error: e1 } = await supabase.from("nexus_progreso").delete().neq("id", 0);
+      const { error: e2 } = await supabase.from("nexus_chats").delete().neq("id", 0);
+      if (e1 || e2) return res.status(200).json({ error: (e1||e2).message });
       return res.status(200).json({ success: true });
+    }
+
+    // Limpiar progreso de un docente específico (teacher — borra solo sus estudiantes)
+    if (accion === "limpiar_progreso_docente") {
+      const { docente_id } = req.body;
+      if (!docente_id) return res.status(200).json({ error: "Falta docente_id" });
+
+      // Misiones del docente
+      const { data: misiones } = await supabase
+        .from("nexus_misiones").select("id").eq("docente_id", String(docente_id));
+      const misionIds = (misiones || []).map(m => m.id);
+      if (misionIds.length === 0) return res.status(200).json({ success: true, estudiantesAfectados: 0 });
+
+      // IDs de estudiantes
+      const { data: progRows } = await supabase
+        .from("nexus_progreso").select("estudiante_id").in("mision_id", misionIds).limit(3000);
+      const estIds = [...new Set((progRows||[]).map(p=>String(p.estudiante_id)))];
+
+      // Borrar progreso
+      await supabase.from("nexus_progreso").delete().in("mision_id", misionIds);
+
+      // Borrar chats de esas misiones + chats libres de esos estudiantes
+      await supabase.from("nexus_chats").delete().in("mision_id", misionIds);
+      if (estIds.length > 0) {
+        await supabase.from("nexus_chats").delete().is("mision_id", null).in("estudiante_id", estIds);
+      }
+
+      return res.status(200).json({ success: true, estudiantesAfectados: estIds.length });
     }
 
     // ── Eliminar TODOS los equipos (chats + progreso) ──────────
