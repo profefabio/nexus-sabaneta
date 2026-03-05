@@ -257,7 +257,7 @@ module.exports = async function handler(req, res) {
         progresoMap[k] += (p.xp_total || 0);
         if (!gradoGrupoMap[p.estudiante_id] && (p.grado || p.grupo)) gradoGrupoMap[p.estudiante_id] = { grado: p.grado || "", grupo: p.grupo || "" };
       });
-      const { data: ests } = await supabase.from("nexus_estudiantes").select("id, grado, grupo").in("id", todosIds.map(String)).limit(1000);
+      const { data: ests } = await supabase.from("estudiantes").select("id, grado, grupo").in("id", todosIds.map(String)).limit(1000);
       (ests || []).forEach(e => { if (e.grado || e.grupo) gradoGrupoMap[e.id] = { grado: e.grado || "", grupo: e.grupo || "" }; });
     }
 

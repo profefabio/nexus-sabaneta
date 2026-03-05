@@ -68,7 +68,7 @@ module.exports = async function handler(req, res) {
   let lista = [];
   try {
     const { data, error } = await supabase
-      .from("nexus_estudiantes")
+      .from("estudiantes")
       .select("id, nombres, apellidos, grado, grupo")
       .eq("grado", grado)
       .eq("grupo", grupo)
