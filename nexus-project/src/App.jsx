@@ -1630,14 +1630,26 @@ function StudentView({ user, onLogout }) {
   // Cargar misiones del docente asignado y filtrar por grado del estudiante
   useEffect(()=>{
     getMisiones(user.docente_id||"","student").then(m=>{
-      // Mostrar solo misiones sin grado (todas), o donde el grado del estudiante esté incluido
       const filtradas = m.filter(mision => {
-        if(!mision.grados || mision.grados.length===0) return true; // sin filtro = todos
+        if(!mision.grados || mision.grados.length===0) return true;
         return mision.grados.includes(String(user.grade));
       });
       setMisiones(filtradas);
     });
   },[user.docente_id, user.grade]);
+
+  // ── Restaurar equipo activo al volver a iniciar sesión ────────
+  useEffect(()=>{
+    if (!user?.id) return;
+    fetch(`/api/companeros?restaurar=1&estudiante_id=${user.id}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.equipo && d.equipo.nombre) {
+          setEquipo(d.equipo);
+        }
+      })
+      .catch(() => {});
+  }, [user?.id]);
   const missionData = misiones.find(m=>m.id===mission);
 
   return (
@@ -2639,19 +2651,21 @@ function EquiposPanel({ user }) {
         </div>
         {equipos.length > 0 && (
           <button onClick={async () => {
-            if (!confirm(`¿Disolver TODOS los equipos (${equipos.length})?\nEsta acción no se puede deshacer.`)) return;
+            if (!confirm(`⚠️ RESET COMPLETO — ${equipos.length} equipo(s)\n\nSe eliminarán:\n• Todos los chats de equipo\n• El progreso y XP de los integrantes\n\nEsta acción NO se puede deshacer.`)) return;
             const r = await fetch("/api/usuarios", {
               method:"POST", headers:{"Content-Type":"application/json"},
               body: JSON.stringify({ accion:"limpiar_equipos", docente_id: user.id })
             });
             const d = await r.json();
-            if (d.success) { setEquipos([]); setSelEquipo(null); }
-            else alert("Error: " + d.error);
+            if (d.success) {
+              setEquipos([]); setSelEquipo(null);
+              alert(`✅ Reset completo. ${d.estudiantesAfectados || 0} estudiante(s) limpiados.`);
+            } else alert("Error: " + d.error);
           }} style={{ padding:"8px 16px", background:"#ef444415",
             border:"1px solid #ef444455", borderRadius:10, color:"#ef4444",
             fontSize:11, cursor:"pointer", fontWeight:700, whiteSpace:"nowrap",
             display:"flex", alignItems:"center", gap:6 }}>
-            🗑️ Disolver todos los equipos
+            🗑️ Eliminar todos · Reset XP
           </button>
         )}
       </div>
