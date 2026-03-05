@@ -148,13 +148,29 @@ module.exports = async function handler(req, res) {
     let estudianteIdsDocente = null;
 
     if (docente_id) {
-      const { data: misiones } = await supabase
+      // Propias
+      const { data: misionesPropias } = await supabase
         .from("nexus_misiones")
-        .select("id, title, color, icon")
+        .select("id, title, color, icon, colaboradores")
         .eq("docente_id", docente_id);
 
-      misionIds = (misiones || []).map(m => m.id);
-      (misiones || []).forEach(m => { misionesMap[m.id] = m; });
+      // Colaborativas: misiones de otros docentes donde aparezco en colaboradores
+      const { data: todasParaColab } = await supabase
+        .from("nexus_misiones")
+        .select("id, title, color, icon, colaboradores")
+        .neq("docente_id", docente_id)
+        .limit(300);
+
+      const misionesColab = (todasParaColab || []).filter(m => {
+        try {
+          const arr = typeof m.colaboradores === "string" ? JSON.parse(m.colaboradores) : (m.colaboradores || []);
+          return arr.includes(String(docente_id));
+        } catch { return false; }
+      });
+
+      const todasMisiones = [...(misionesPropias || []), ...misionesColab];
+      misionIds = todasMisiones.map(m => m.id);
+      todasMisiones.forEach(m => { misionesMap[m.id] = m; });
 
       // BUG FIX: Obtener IDs de estudiantes del docente para incluir sus chats en modo libre
       if (misionIds.length > 0) {
