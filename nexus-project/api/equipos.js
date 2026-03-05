@@ -1,4 +1,5 @@
-// api/equipos.js — Equipos con grado/grupo para filtros + DELETE con borrado total
+// api/equipos.js — v2: Muestra TODOS los equipos (misiones + libre)
+//                     + endpoint de detalle por equipo con informe de actividad
 const { createClient } = require("@supabase/supabase-js");
 
 module.exports = async function handler(req, res) {
@@ -13,166 +14,243 @@ module.exports = async function handler(req, res) {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
   // ═══════════════════════════════════════════════════════
-  // DELETE — Eliminar equipo: chats + progreso de todos los integrantes
+  // DELETE — Eliminar equipo
   // ═══════════════════════════════════════════════════════
   if (req.method === "DELETE") {
     const { nombre, docente_id } = req.body;
     if (!nombre) return res.status(200).json({ error: "Falta el nombre del equipo" });
-
     try {
-      // 1. Obtener todas las misiones del docente para filtrar correctamente
       let misionIds = null;
       if (docente_id) {
-        const { data: misiones } = await supabase
-          .from("nexus_misiones")
-          .select("id")
-          .eq("docente_id", docente_id);
+        const { data: misiones } = await supabase.from("nexus_misiones").select("id").eq("docente_id", docente_id);
         misionIds = (misiones || []).map(m => m.id);
       }
-
-      // 2. Obtener los estudiante_id únicos del equipo desde nexus_chats
-      let qIds = supabase
-        .from("nexus_chats")
-        .select("estudiante_id")
-        .eq("equipo_nombre", nombre);
-      if (misionIds && misionIds.length > 0) qIds = qIds.in("mision_id", misionIds);
-
-      const { data: chatRows, error: idErr } = await qIds;
+      const { data: chatRows, error: idErr } = await supabase.from("nexus_chats").select("estudiante_id").eq("equipo_nombre", nombre);
       if (idErr) return res.status(200).json({ error: idErr.message });
-
       const estudianteIds = [...new Set((chatRows || []).map(r => String(r.estudiante_id)))];
-
-      // 3. Borrar todos los mensajes del chat del equipo
-      let qDelChats = supabase
-        .from("nexus_chats")
-        .delete()
-        .eq("equipo_nombre", nombre);
-      if (misionIds && misionIds.length > 0) qDelChats = qDelChats.in("mision_id", misionIds);
-
-      const { error: chatDelErr } = await qDelChats;
+      const { error: chatDelErr } = await supabase.from("nexus_chats").delete().eq("equipo_nombre", nombre);
       if (chatDelErr) return res.status(200).json({ error: "Error al borrar chats: " + chatDelErr.message });
-
-      // 4. Borrar el progreso de todos los integrantes del equipo
       if (estudianteIds.length > 0) {
-        let qDelProg = supabase
-          .from("nexus_progreso")
-          .delete()
-          .in("estudiante_id", estudianteIds);
+        let qDelProg = supabase.from("nexus_progreso").delete().in("estudiante_id", estudianteIds);
         if (misionIds && misionIds.length > 0) qDelProg = qDelProg.in("mision_id", misionIds);
-
         const { error: progDelErr } = await qDelProg;
         if (progDelErr) return res.status(200).json({ error: "Error al borrar progreso: " + progDelErr.message });
       }
+      return res.status(200).json({ success: true, mensaje: `Equipo "${nombre}" eliminado. ${estudianteIds.length} integrante(s) afectados.`, integrantes_afectados: estudianteIds.length });
+    } catch (err) {
+      return res.status(200).json({ error: err.message });
+    }
+  }
 
-      return res.status(200).json({
-        success: true,
-        mensaje: `Equipo "${nombre}" eliminado. ${estudianteIds.length} integrante(s) afectados.`,
-        integrantes_afectados: estudianteIds.length,
+  if (req.method !== "GET")
+    return res.status(200).json({ error: "Método no permitido", equipos: [] });
+
+  const { docente_id, equipo: equipoDetalle } = req.query;
+
+  // ═══════════════════════════════════════════════════════
+  // GET ?equipo=NOMBRE — Detalle completo de un equipo
+  // ═══════════════════════════════════════════════════════
+  if (equipoDetalle) {
+    try {
+      const nombreEquipo = decodeURIComponent(equipoDetalle);
+
+      const { data: chats, error: chatErr } = await supabase
+        .from("nexus_chats")
+        .select("estudiante_id, nombre_estudiante, mision_id, mision_title, role, xp_at_time, created_at")
+        .eq("equipo_nombre", nombreEquipo)
+        .order("created_at", { ascending: true })
+        .limit(3000);
+
+      if (chatErr) return res.status(200).json({ error: chatErr.message });
+
+      const estudianteIds = [...new Set((chats || []).map(c => String(c.estudiante_id)))];
+
+      let progresoData = [];
+      if (estudianteIds.length > 0) {
+        const { data: prog } = await supabase
+          .from("nexus_progreso")
+          .select("estudiante_id, nombre_estudiante, grado, grupo, xp_total, nota, mision_id, nivel, updated_at")
+          .in("estudiante_id", estudianteIds)
+          .limit(500);
+        progresoData = prog || [];
+      }
+
+      const estudianteMap = {};
+      (chats || []).forEach(c => {
+        const id = String(c.estudiante_id);
+        if (!estudianteMap[id]) {
+          estudianteMap[id] = { id, nombre: c.nombre_estudiante, misiones: {}, mensajes_total: 0, ultima_actividad: c.created_at, primera_actividad: c.created_at };
+        }
+        const est = estudianteMap[id];
+        if (c.role === "user") est.mensajes_total++;
+        const mId = c.mision_id || "libre";
+        if (!est.misiones[mId]) est.misiones[mId] = { id: mId, title: c.mision_title || "Modo libre", mensajes: 0, xp_max: 0 };
+        if (c.role === "user") est.misiones[mId].mensajes++;
+        if ((c.xp_at_time || 0) > est.misiones[mId].xp_max) est.misiones[mId].xp_max = c.xp_at_time || 0;
+        if (c.created_at > est.ultima_actividad) est.ultima_actividad = c.created_at;
+        if (c.created_at < est.primera_actividad) est.primera_actividad = c.created_at;
       });
 
+      progresoData.forEach(p => {
+        const id = String(p.estudiante_id);
+        if (!estudianteMap[id]) {
+          estudianteMap[id] = { id, nombre: p.nombre_estudiante, misiones: {}, mensajes_total: 0, ultima_actividad: p.updated_at, primera_actividad: p.updated_at };
+        }
+        if (!estudianteMap[id].grado) estudianteMap[id].grado = p.grado;
+        if (!estudianteMap[id].grupo) estudianteMap[id].grupo = p.grupo;
+        estudianteMap[id].xp_total = Math.max(estudianteMap[id].xp_total || 0, p.xp_total || 0);
+        estudianteMap[id].nota = p.nota;
+        estudianteMap[id].nivel = p.nivel;
+      });
+
+      const detalleEstudiantes = Object.values(estudianteMap).map(e => {
+        const misionesArr = Object.values(e.misiones);
+        const xpFinal = e.xp_total || Math.max(...misionesArr.map(m => m.xp_max), 0);
+        return { ...e, misiones: misionesArr, xp_total: xpFinal, nota: e.nota || calcNota(xpFinal) };
+      }).sort((a, b) => (b.xp_total || 0) - (a.xp_total || 0));
+
+      const misionesEquipo = {};
+      (chats || []).forEach(c => {
+        const mId = c.mision_id || "libre";
+        if (!misionesEquipo[mId]) misionesEquipo[mId] = { id: mId, title: c.mision_title || "Modo libre", mensajes: 0, participantes: new Set() };
+        if (c.role === "user") { misionesEquipo[mId].mensajes++; misionesEquipo[mId].participantes.add(c.estudiante_id); }
+      });
+
+      const actividadDiaria = {};
+      (chats || []).forEach(c => {
+        if (c.role !== "user") return;
+        const dia = c.created_at.slice(0, 10);
+        actividadDiaria[dia] = (actividadDiaria[dia] || 0) + 1;
+      });
+
+      return res.status(200).json({
+        detalle: {
+          nombre: nombreEquipo,
+          estudiantes: detalleEstudiantes,
+          misiones: Object.values(misionesEquipo).map(m => ({ ...m, participantes: m.participantes.size })),
+          actividad_diaria: actividadDiaria,
+          total_mensajes: (chats || []).filter(c => c.role === "user").length,
+          primera_actividad: (chats || [])[0]?.created_at || null,
+          ultima_actividad: (chats || []).slice(-1)[0]?.created_at || null,
+        }
+      });
     } catch (err) {
       return res.status(200).json({ error: err.message });
     }
   }
 
   // ═══════════════════════════════════════════════════════
-  // GET — Lista de equipos con grado/grupo
+  // GET — Lista completa de equipos (misiones + modo libre)
   // ═══════════════════════════════════════════════════════
-  if (req.method !== "GET")
-    return res.status(200).json({ error: "Método no permitido", equipos: [] });
-
-  const { docente_id } = req.query;
-
   try {
     let misionIds = null;
     let misionesMap = {};
+    let estudianteIdsDocente = null;
+
     if (docente_id) {
       const { data: misiones } = await supabase
         .from("nexus_misiones")
         .select("id, title, color, icon")
         .eq("docente_id", docente_id);
+
       misionIds = (misiones || []).map(m => m.id);
       (misiones || []).forEach(m => { misionesMap[m.id] = m; });
-      if (misionIds.length === 0)
+
+      // BUG FIX: Obtener IDs de estudiantes del docente para incluir sus chats en modo libre
+      if (misionIds.length > 0) {
+        const { data: progDocente } = await supabase
+          .from("nexus_progreso")
+          .select("estudiante_id")
+          .in("mision_id", misionIds)
+          .limit(2000);
+        if (progDocente && progDocente.length > 0) {
+          estudianteIdsDocente = [...new Set(progDocente.map(p => String(p.estudiante_id)))];
+        }
+      }
+
+      if (misionIds.length === 0 && !estudianteIdsDocente) {
         return res.status(200).json({ equipos: [], sinMisiones: true });
+      }
     }
 
-    let qChats = supabase
-      .from("nexus_chats")
-      .select("estudiante_id, nombre_estudiante, equipo_nombre, mision_id, mision_title, xp_at_time, created_at")
-      .not("equipo_nombre", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(5000);
-    if (misionIds) qChats = qChats.in("mision_id", misionIds);
+    let todosChats = [];
 
-    const { data: chats, error: chatError } = await qChats;
-    if (chatError) return res.status(200).json({ error: chatError.message, equipos: [] });
-    if (!chats || chats.length === 0) return res.status(200).json({ equipos: [] });
+    // A) Chats de las misiones del docente
+    if (misionIds && misionIds.length > 0) {
+      const { data: chatsA } = await supabase
+        .from("nexus_chats")
+        .select("estudiante_id, nombre_estudiante, equipo_nombre, mision_id, mision_title, xp_at_time, created_at")
+        .not("equipo_nombre", "is", null)
+        .in("mision_id", misionIds)
+        .order("created_at", { ascending: false })
+        .limit(5000);
+      todosChats = todosChats.concat(chatsA || []);
+    }
+
+    // B) BUG FIX: Chats en modo libre de los estudiantes del docente
+    if (estudianteIdsDocente && estudianteIdsDocente.length > 0) {
+      const { data: chatsB } = await supabase
+        .from("nexus_chats")
+        .select("estudiante_id, nombre_estudiante, equipo_nombre, mision_id, mision_title, xp_at_time, created_at")
+        .not("equipo_nombre", "is", null)
+        .is("mision_id", null)
+        .in("estudiante_id", estudianteIdsDocente)
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      todosChats = todosChats.concat(chatsB || []);
+    }
+
+    if (!docente_id) {
+      const { data: chatsAll, error: chatError } = await supabase
+        .from("nexus_chats")
+        .select("estudiante_id, nombre_estudiante, equipo_nombre, mision_id, mision_title, xp_at_time, created_at")
+        .not("equipo_nombre", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(5000);
+      if (chatError) return res.status(200).json({ error: chatError.message, equipos: [] });
+      todosChats = chatsAll || [];
+    }
+
+    if (todosChats.length === 0) return res.status(200).json({ equipos: [] });
 
     const equipoMap = {};
-    chats.forEach(c => {
+    todosChats.forEach(c => {
       const key = c.equipo_nombre;
-      if (!equipoMap[key]) {
-        equipoMap[key] = { nombre: key, integrantes: {}, misiones: {}, ultima_actividad: c.created_at };
-      }
+      if (!equipoMap[key]) equipoMap[key] = { nombre: key, integrantes: {}, misiones: {}, ultima_actividad: c.created_at };
       const eq = equipoMap[key];
-      if (!eq.integrantes[c.estudiante_id]) {
-        eq.integrantes[c.estudiante_id] = { id: c.estudiante_id, nombre: c.nombre_estudiante, xp_max: 0, grado: null, grupo: null };
-      }
-      const int = eq.integrantes[c.estudiante_id];
-      if ((c.xp_at_time || 0) > int.xp_max) int.xp_max = c.xp_at_time || 0;
-
+      if (!eq.integrantes[c.estudiante_id]) eq.integrantes[c.estudiante_id] = { id: c.estudiante_id, nombre: c.nombre_estudiante, xp_max: 0, grado: null, grupo: null };
+      const int_ = eq.integrantes[c.estudiante_id];
+      if ((c.xp_at_time || 0) > int_.xp_max) int_.xp_max = c.xp_at_time || 0;
       const mId = c.mision_id || "libre";
-      if (!eq.misiones[mId]) {
-        eq.misiones[mId] = {
-          id: mId,
-          title: c.mision_title || misionesMap[mId]?.title || "Misión libre",
-          color: misionesMap[mId]?.color || "#00c8ff",
-          icon:  misionesMap[mId]?.icon  || "📋",
-          mensajes: 0,
-        };
-      }
+      if (!eq.misiones[mId]) eq.misiones[mId] = { id: mId, title: c.mision_title || misionesMap[mId]?.title || "Modo libre", color: misionesMap[mId]?.color || "#8b5cf6", icon: misionesMap[mId]?.icon || "🆓", mensajes: 0 };
       eq.misiones[mId].mensajes++;
       if (c.created_at > eq.ultima_actividad) eq.ultima_actividad = c.created_at;
     });
 
-    const todosIds = [...new Set(chats.map(c => c.estudiante_id))];
+    const todosIds = [...new Set(todosChats.map(c => c.estudiante_id))];
     let progresoMap = {};
     let gradoGrupoMap = {};
 
     if (todosIds.length > 0) {
-      let qProg = supabase
-        .from("nexus_progreso")
-        .select("estudiante_id, xp_total, nota, nivel, mision_id, grado, grupo")
-        .in("estudiante_id", todosIds.map(String))
-        .limit(2000);
-      if (misionIds) qProg = qProg.in("mision_id", misionIds);
-
+      let qProg = supabase.from("nexus_progreso").select("estudiante_id, xp_total, nota, nivel, mision_id, grado, grupo").in("estudiante_id", todosIds.map(String)).limit(3000);
+      if (misionIds && misionIds.length > 0) qProg = qProg.in("mision_id", misionIds);
       const { data: progreso } = await qProg;
       (progreso || []).forEach(p => {
-        if (!progresoMap[`total_${p.estudiante_id}`]) progresoMap[`total_${p.estudiante_id}`] = 0;
-        progresoMap[`total_${p.estudiante_id}`] += (p.xp_total || 0);
-        if (!gradoGrupoMap[p.estudiante_id] && (p.grado || p.grupo))
-          gradoGrupoMap[p.estudiante_id] = { grado: p.grado || "", grupo: p.grupo || "" };
+        const k = `total_${p.estudiante_id}`;
+        if (!progresoMap[k]) progresoMap[k] = 0;
+        progresoMap[k] += (p.xp_total || 0);
+        if (!gradoGrupoMap[p.estudiante_id] && (p.grado || p.grupo)) gradoGrupoMap[p.estudiante_id] = { grado: p.grado || "", grupo: p.grupo || "" };
       });
-
-      const { data: ests } = await supabase
-        .from("nexus_estudiantes")
-        .select("id, grado, grupo")
-        .in("id", todosIds.map(String))
-        .limit(500);
-      (ests || []).forEach(e => {
-        if (e.grado || e.grupo) gradoGrupoMap[e.id] = { grado: e.grado || "", grupo: e.grupo || "" };
-      });
+      const { data: ests } = await supabase.from("nexus_estudiantes").select("id, grado, grupo").in("id", todosIds.map(String)).limit(1000);
+      (ests || []).forEach(e => { if (e.grado || e.grupo) gradoGrupoMap[e.id] = { grado: e.grado || "", grupo: e.grupo || "" }; });
     }
 
     const equipos = Object.values(equipoMap).map(eq => {
-      const integrantes = Object.values(eq.integrantes).map((int, i) => {
-        const gg = gradoGrupoMap[int.id] || { grado: "", grupo: "" };
-        const xpTotal = progresoMap[`total_${int.id}`] || int.xp_max;
-        return { id: int.id, nombre: int.nombre, xp_total: xpTotal, nota: calcNota(xpTotal), grado: gg.grado, grupo: gg.grupo, es_lider: i === 0 };
+      const integrantes = Object.values(eq.integrantes).map((int_, i) => {
+        const gg = gradoGrupoMap[int_.id] || { grado: "", grupo: "" };
+        const xpTotal = progresoMap[`total_${int_.id}`] || int_.xp_max;
+        return { id: int_.id, nombre: int_.nombre, xp_total: xpTotal, nota: calcNota(xpTotal), grado: gg.grado, grupo: gg.grupo, es_lider: i === 0 };
       });
-
       const gradoCounts = {};
       const grupoCounts = {};
       integrantes.forEach(i => {
@@ -181,19 +259,9 @@ module.exports = async function handler(req, res) {
       });
       const gradoEquipo = Object.entries(gradoCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] || "";
       const grupoEquipo = Object.entries(grupoCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] || "";
-
       const xpEquipo = integrantes.reduce((s, i) => s + i.xp_total, 0);
-      const notaProm = integrantes.length > 0
-        ? Math.round((integrantes.reduce((s,i) => s + i.nota, 0) / integrantes.length) * 10) / 10
-        : 1.0;
-
-      return {
-        nombre: eq.nombre, grado: gradoEquipo, grupo: grupoEquipo,
-        integrantes: integrantes.sort((a,b) => b.xp_total - a.xp_total),
-        misiones: Object.values(eq.misiones),
-        xp_equipo: xpEquipo, nota_promedio: notaProm,
-        num_integrantes: integrantes.length, ultima_actividad: eq.ultima_actividad,
-      };
+      const notaProm = integrantes.length > 0 ? Math.round((integrantes.reduce((s,i) => s + i.nota, 0) / integrantes.length) * 10) / 10 : 1.0;
+      return { nombre: eq.nombre, grado: gradoEquipo, grupo: grupoEquipo, integrantes: integrantes.sort((a,b) => b.xp_total - a.xp_total), misiones: Object.values(eq.misiones), xp_equipo: xpEquipo, nota_promedio: notaProm, num_integrantes: integrantes.length, ultima_actividad: eq.ultima_actividad };
     }).sort((a,b) => b.nota_promedio - a.nota_promedio || b.xp_equipo - a.xp_equipo);
 
     return res.status(200).json({ equipos });
