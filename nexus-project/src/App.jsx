@@ -1795,7 +1795,9 @@ function StudentView({ user, onLogout }) {
         </div>
       )}
       {tab==="missions"&&<Page title="🗺️ Misiones"><MissionMap misiones={misiones} onSelect={(mId, reto)=>{setMission(mId);if(reto)setRetoActual(reto);setTab("chat");}} /></Page>}
-      {tab==="team"&&<EquipoPanel user={user} equipo={equipo} setEquipo={setEquipo} onIrChat={()=>setTab("chat")} />}
+      {tab==="team"&&<EquipoPanel user={user} equipo={equipo} setEquipo={setEquipo}
+        misiones={misiones} misionActiva={mission} setMisionActiva={setMission}
+        onIrChat={()=>setTab("chat")} />}
       {tab==="progress"&&<Page title="⭐ Mi Progreso">
         <InfoBox title={`🎓 ${user.name}`}>
           <Row k="Grado" v={user.grade||"—"} />
@@ -1830,14 +1832,16 @@ function StudentView({ user, onLogout }) {
 // ═══════════════════════════════════════════════════════════════
 // PANEL EQUIPO — compañeros cargados desde Supabase
 // ═══════════════════════════════════════════════════════════════
-function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
+function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva, setMisionActiva }) {
   const [nombre, setNombre]           = useState(equipo?.nombre || "");
   const [seleccionados, setSeleccionados] = useState(equipo?.integrantes || []);
   const [companeros, setCompaneros]   = useState([]);
   const [loadingC, setLoadingC]       = useState(true);
   const [buscar, setBuscar]           = useState("");
   const [saved, setSaved]             = useState(false);
-  // yaEnEquipo: { nombre, liderId } — si alguien nos agregó a su equipo
+  // Misión seleccionada para este equipo
+  const [misionEquipo, setMisionEquipo] = useState(misionActiva || null);
+  // yaEnEquipo: { nombre, liderId, misionId } — si alguien nos agregó a su equipo
   const [yaEnEquipo, setYaEnEquipo]   = useState(null);
 
   useEffect(() => {
@@ -1848,15 +1852,17 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
       .then(r => r.json())
       .then(d => {
         if (d.equipo?.nombre) {
-          // Soy líder si mi ID coincide con el liderId del equipo
           const soyLider = d.equipo.liderId && String(d.equipo.liderId) === String(user.id);
           if (soyLider) {
-            // Soy líder: restaurar el equipo en el estado global
             if (!equipo) setEquipo(d.equipo);
+            // Restaurar misión del equipo si la tiene
+            if (d.equipo.misionId && setMisionActiva) setMisionActiva(d.equipo.misionId);
+            if (d.equipo.misionId) setMisionEquipo(d.equipo.misionId);
           } else {
-            // Soy integrante: bloquear el formulario
             setYaEnEquipo(d.equipo);
             if (!equipo) setEquipo(d.equipo);
+            // Llevar al estudiante a la misión del equipo automáticamente
+            if (d.equipo.misionId && setMisionActiva) setMisionActiva(d.equipo.misionId);
           }
         }
       })
@@ -1876,12 +1882,16 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
 
   const guardar = async () => {
     if (!nombre.trim()) return;
+    if (!misionEquipo) { alert("⚠️ Debes seleccionar una misión para activar el equipo."); return; }
     const nombreEquipo = nombre.trim();
-    setEquipo({ nombre: nombreEquipo, integrantes: seleccionados });
+    const misionData = misiones?.find(m => m.id === misionEquipo);
+
+    setEquipo({ nombre: nombreEquipo, integrantes: seleccionados, misionId: misionEquipo });
+    // Activar la misión en el chat directamente
+    if (setMisionActiva) setMisionActiva(misionEquipo);
     setSaved(true);
 
-    // Registrar el equipo en nexus_chats para que los integrantes queden bloqueados
-    // inmediatamente (sin necesidad de que empiecen a chatear)
+    // Registrar el equipo + misión en nexus_chats para bloqueo inmediato
     try {
       const todosIntegrantes = [
         { id: user.id, nombre: user.name },
@@ -1893,10 +1903,10 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
           body: JSON.stringify({
             estudiante_id: m.id,
             nombre_estudiante: m.nombre,
-            mision_id: null,
-            mision_title: null,
+            mision_id: misionEquipo,
+            mision_title: misionData?.title || null,
             role: "system",
-            content: `__equipo_registrado__:${nombreEquipo}:lider:${user.id}`,
+            content: `__equipo_registrado__:${nombreEquipo}:lider:${user.id}:mision:${misionEquipo}`,
             xp_at_time: 0,
             equipo_nombre: nombreEquipo,
           })
@@ -1960,6 +1970,33 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
         Los demás participan en voz alta y NEXUS les da actividades para todos. 🏆<br/>
         <span style={{ color:C.accent3 }}>El XP y la nota del equipo quedan registrados para el docente.</span>
       </div>
+
+      {/* Selección de misión PRIMERO */}
+      <Card title="🗺️ Misión del equipo">
+        {(!misiones || misiones.length === 0) ? (
+          <div style={{ color:C.muted, fontSize:12 }}>No hay misiones disponibles. Tu docente debe crear una misión primero.</div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>
+              Elige la misión que trabajarán juntos. El bloqueo de integrantes aplica por misión.
+            </div>
+            {misiones.map(m => (
+              <div key={m.id} onClick={() => setMisionEquipo(m.id)}
+                style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                  background: misionEquipo===m.id ? `${m.color}22` : C.surface,
+                  border:`1px solid ${misionEquipo===m.id ? m.color : C.border}`,
+                  borderRadius:10, cursor:"pointer", transition:"all .15s" }}>
+                <span style={{ fontSize:22, flexShrink:0 }}>{m.icon}</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color: misionEquipo===m.id ? m.color : C.text }}>{m.title}</div>
+                  <div style={{ fontSize:10, color:C.muted }}>{(m.retos||[]).length} retos · {m.docente_nombre||"Docente"}</div>
+                </div>
+                {misionEquipo===m.id && <span style={{ fontSize:16, color:m.color, flexShrink:0 }}>✓</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* Nombre */}
       <Card title="📋 Nombre del equipo">
@@ -2033,8 +2070,14 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
       </Card>
 
       <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-        <Btn onClick={guardar} disabled={!nombre.trim() || seleccionados.length === 0}>
-          {saved ? "✅ ¡Equipo listo! Iniciando chat..." : `Activar equipo (${1+seleccionados.length}) e ir al chat 🚀`}
+        <Btn onClick={guardar} disabled={!nombre.trim() || seleccionados.length === 0 || !misionEquipo}>
+          {saved
+            ? "✅ ¡Equipo activado! Redirigiendo al chat..."
+            : !misionEquipo
+              ? "⚠️ Selecciona una misión primero"
+              : !nombre.trim()
+                ? "⚠️ Escribe el nombre del equipo"
+                : `🚀 Activar equipo (${1+seleccionados.length}) → ${misiones?.find(m=>m.id===misionEquipo)?.title||"sin misión"}`}
         </Btn>
         {equipo && (
           <button onClick={disolver} style={{ padding:"11px 18px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:10, color:"#ff7777", fontSize:13, cursor:"pointer" }}>
