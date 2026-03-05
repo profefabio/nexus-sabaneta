@@ -104,27 +104,40 @@ module.exports = async function handler(req, res) {
 
   if (lista.length === 0) return res.status(200).json({ companeros: [] });
 
-  // 2. Detectar equipo activo — en bloque separado para no bloquear la lista si falla
+  // 2. Detectar equipo activo — doble verificación: chats sistema + progreso
   const equipoActivoMap = {};
+  const listaIds = lista.map(e => String(e.id));
+
+  // 2a. Buscar en nexus_chats cualquier mensaje con equipo_nombre (bloqueo inmediato)
   try {
-    const listaIds = lista.map(e => String(e.id));
-    const hace60 = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: equipoRows } = await supabase
+    const hace90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: chatRows } = await supabase
       .from("nexus_chats")
       .select("estudiante_id, equipo_nombre")
       .not("equipo_nombre", "is", null)
       .in("estudiante_id", listaIds)
-      .gte("created_at", hace60)
+      .gte("created_at", hace90)
       .order("created_at", { ascending: false })
       .limit(200);
-
-    (equipoRows || []).forEach(row => {
+    (chatRows || []).forEach(row => {
       const id = String(row.estudiante_id);
       if (!equipoActivoMap[id]) equipoActivoMap[id] = row.equipo_nombre;
     });
-  } catch (_) {
-    // Si falla la detección de equipo, simplemente no mostramos el flag — pero SÍ devolvemos los compañeros
-  }
+  } catch (_) {}
+
+  // 2b. Verificar también en nexus_progreso (captura equipos con cualquier XP)
+  try {
+    const { data: progRows } = await supabase
+      .from("nexus_progreso")
+      .select("estudiante_id, equipo_nombre")
+      .not("equipo_nombre", "is", null)
+      .in("estudiante_id", listaIds)
+      .limit(200);
+    (progRows || []).forEach(row => {
+      const id = String(row.estudiante_id);
+      if (!equipoActivoMap[id]) equipoActivoMap[id] = row.equipo_nombre;
+    });
+  } catch (_) {}
 
   const result = lista.map(e => ({
     ...e,
