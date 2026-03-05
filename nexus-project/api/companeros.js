@@ -33,11 +33,29 @@ module.exports = async function handler(req, res) {
       if (!rows || rows.length === 0) return res.status(200).json({ equipo: null });
       const nombreEquipo = rows[0].equipo_nombre;
 
+      // Extraer liderId del mensaje de sistema
+      let liderId = null;
+      try {
+        const { data: sysMsg } = await supabase
+          .from("nexus_chats")
+          .select("content")
+          .eq("equipo_nombre", nombreEquipo)
+          .eq("role", "system")
+          .order("created_at", { ascending: true })
+          .limit(1);
+        if (sysMsg?.length > 0) {
+          // formato: __equipo_registrado__:NOMBRE:lider:ID
+          const partes = (sysMsg[0].content || "").split(":");
+          liderId = partes[3] || null;
+        }
+      } catch(_) {}
+
       const { data: integrantesRows } = await supabase
         .from("nexus_chats")
         .select("estudiante_id, nombre_estudiante")
         .eq("equipo_nombre", nombreEquipo)
         .neq("estudiante_id", String(estudiante_id))
+        .eq("role", "system")  // solo el registro inicial de cada integrante
         .order("created_at", { ascending: true })
         .limit(100);
 
@@ -54,7 +72,7 @@ module.exports = async function handler(req, res) {
           });
         }
       });
-      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes } });
+      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes, liderId } });
     } catch (err) {
       return res.status(200).json({ equipo: null });
     }
