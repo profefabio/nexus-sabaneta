@@ -76,7 +76,7 @@ const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
 };
 
 // Guardar un mensaje en el historial de chat
-const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equipoNombre=null) => {
+const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equipoNombre=null, retoId=null) => {
   try {
     await fetch("/api/savechat", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -85,6 +85,7 @@ const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equip
         nombre_estudiante: user.name,
         mision_id: misionId||null,
         mision_title: misionTitle||null,
+        reto_id: retoId ? String(retoId) : null,
         role, content,
         xp_at_time: xp||0,
         equipo_nombre: equipoNombre||null,
@@ -93,14 +94,16 @@ const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equip
   } catch(_) {}
 };
 
-// Cargar historial de chat de un estudiante para una misión
-const loadChatHistory = async (estudianteId, misionId) => {
+// Cargar historial de chat (por misión y opcionalmente por reto)
+const loadChatHistory = async (estudianteId, misionId, retoId) => {
   try {
     const params = new URLSearchParams({ estudiante_id: estudianteId });
     if (misionId) params.append("mision_id", misionId);
+    if (retoId !== undefined && retoId !== null)
+      params.append("reto_id", retoId === null ? "__libre__" : String(retoId));
     const res = await fetch("/api/savechat?" + params);
     const data = await res.json();
-    return (data.msgs || []).map(m => ({ role: m.role, content: m.content }));
+    return (data.msgs || []).map(m => ({ role: m.role, content: m.content, retoId: m.reto_id }));
   } catch(_) { return []; }
 };
 
@@ -338,20 +341,25 @@ Cuando el estudiante elija un reto, DEBES:
 1. GENERAR inmediatamente un EJERCICIO PR\u00c1CTICO concreto y creativo: un problema real, c\u00f3digo incompleto para completar, circuito para analizar, caso de estudio, experimento virtual o desaf\u00edo de dise\u00f1o \u2014 siempre relacionado con el reto elegido y con contexto colombiano si es posible.
 2. Esperar la respuesta del estudiante.
 3. EVALUAR la respuesta: si es incorrecta, dar UNA pista espec\u00edfica y reformular. Si mejora, celebrar y avanzar.
-4. Al final de CADA respuesta tuya, indicar el XP ganado exactamente as\u00ed (sin variaciones):
-   - Respuesta excelente / completa  \u2192 **+25 XP \u2b50\u2b50\u2b50 \u00a1Maestr\u00eda!**
-   - Respuesta buena / parcial       \u2192 **+15 XP \u2b50\u2b50 \u00a1Bien hecho!**
-   - Respuesta b\u00e1sica / solo intento \u2192 **+5 XP \u2b50 \u00a1Sigue intentando!**
+4. EVALUAR RESPUESTA del estudiante y al final incluir EXACTAMENTE UNA de estas l\u00edneas:
+   - Respuesta excelente/completa/correcta \u2192 **+25 XP \u2b50\u2b50\u2b50 \u00a1Maestr\u00eda!**
+   - Respuesta parcial/en buen camino      \u2192 **+15 XP \u2b50\u2b50 \u00a1Bien hecho!**
+   - Solo intento/muy incompleto           \u2192 **+5 XP \u2b50 \u00a1Sigue intentando!**
+   - Mensaje sin contenido real/fuera del tema \u2192 SIN XP (no incluir la l\u00ednea)
+5. ACTIVIDADES SI NO LOGRA: si el estudiante no logra resolver, d\u00e1le actividades pr\u00e1cticas (ejercicios, analog\u00edas, ejemplos con contexto colombiano) que le permitan construir el conocimiento necesario para llegar a la soluci\u00f3n.
+
+\u2550\u2550 TIP UNA SOLA VEZ AL INICIO DEL RETO \u2550\u2550
+En tu PRIMER mensaje del reto, incluye esta frase: \u201c\ud83d\udca1 Si respondes todo correctamente en UN SOLO mensaje obtienes **+25 XP m\u00e1ximo** y puedes pasar al siguiente reto de inmediato.\u201d
 
 \u2550\u2550 CONTADOR DE INTERACCIONES \u2550\u2550
 Interacciones usadas en este reto: ${interaccionesUsadas}/10. Quedan: ${restantes}.
-${restantes <= 3 && restantes > 0 ? `\u26a0\ufe0f QUEDAN SOLO ${restantes} INTERACCIONES. Orienta al estudiante hacia la soluci\u00f3n con pistas m\u00e1s directas.` : ""}
-${interaccionesUsadas >= 9 ? "\ud83c\udfc1 \u00daLTIMA INTERACCI\u00d3N: Haz una evaluaci\u00f3n final del desempe\u00f1o, felicita al estudiante y resume lo aprendido." : ""}
+${restantes <= 3 && restantes > 0 ? `\u26a0\ufe0f QUEDAN SOLO ${restantes} INTERACCIONES. Ori\u00e9ntalo con pistas m\u00e1s directas y actividades cortas.` : ""}
+${interaccionesUsadas >= 9 ? "\ud83c\udfc1 \u00daLTIMA INTERACCI\u00d3N: Eval\u00faa el desempe\u00f1o, celebra, resume lo aprendido y sug\u00edrale iniciar el siguiente reto." : ""}
 
 \u2550\u2550 REGLAS \u2550\u2550
-- NUNCA des la respuesta completa directamente. Usa preguntas socr\u00e1ticas y pistas graduales.
-- Las pistas deben ser progresivamente m\u00e1s espec\u00edficas a medida que el estudiante lo necesite.
-- Si el estudiante mejora su respuesta respecto a la anterior, rec\u00f3nocelo expl\u00edcitamente.
+- NUNCA des la respuesta completa. Usa preguntas socr\u00e1ticas, pistas graduales y ejercicios.
+- Si el estudiante logra responder todo correctamente desde el inicio, FELICIT\u00c1LO con energ\u00eda y sug\u00edrale el siguiente reto.
+- Si el estudiante mejora respecto a su respuesta anterior, rec\u00f3nocelo explicitamente.
 - Siempre en espa\u00f1ol colombiano, c\u00e1lido, motivador y cercano. \ud83d\ude80
 ${extraEquipo?`\n${extraEquipo}`:""}`;
 };
@@ -788,6 +796,26 @@ function ProgresoPanel({ user }) {
 
   return (
     <Page title="📊 Progreso Estudiantil">
+      {/* Botón limpiar — solo admin/teacher */}
+      {user.role !== "student" && (
+        <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+          <button onClick={async () => {
+            if (!confirm("⚠️ ¿Eliminar TODO el progreso y chats de TUS estudiantes?\n\nSe borrarán:\n• Todos los chats y conversaciones\n• Todo el XP y notas\n\nEsta acción NO se puede deshacer.")) return;
+            // Borrar progreso
+            const r1 = await fetch("/api/usuarios", {
+              method:"POST", headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({ accion:"limpiar_progreso_docente", docente_id: user.id })
+            });
+            const d = await r1.json();
+            if (d.success) { alert(`✅ Progreso limpiado. ${d.estudiantesAfectados||0} estudiante(s) reseteados.`); window.location.reload(); }
+            else alert("Error: " + (d.error||"desconocido"));
+          }} style={{ padding:"7px 16px", background:"#ef444415", border:"1px solid #ef444455",
+            borderRadius:9, color:"#ef4444", fontSize:11, cursor:"pointer", fontWeight:700,
+            display:"flex", alignItems:"center", gap:6 }}>
+            🗑️ Borrar todo el progreso y chats
+          </button>
+        </div>
+      )}
       {loading && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando...</div>}
 
       {!loading && stats?.sinMisiones && (
@@ -1623,9 +1651,14 @@ function StudentView({ user, onLogout }) {
   const [tab, setTab] = useState("chat");
   const [mission, setMission] = useState(null);
   const [misiones, setMisiones] = useState([]);
-  const [equipo, setEquipo] = useState(null); // { nombre, integrantes:[string] }
+  const [equipo, setEquipo] = useState(null);
   const [showEquipo, setShowEquipo] = useState(false);
+  // retoActual: { id, title, stars, idx } — reto seleccionado dentro de la misión
+  const [retoActual, setRetoActual] = useState(null);
   const isMobile = useIsMobile();
+
+  // Al cambiar misión, resetear reto
+  useEffect(() => { setRetoActual(null); }, [mission]);
 
   // Cargar misiones del docente asignado y filtrar por grado del estudiante
   useEffect(()=>{
@@ -1684,11 +1717,12 @@ function StudentView({ user, onLogout }) {
               )}
               userName={equipo?`Equipo ${equipo.nombre}`:user.name}
               user={user} misionId={mission} equipo={equipo} misionData={missionData||null} misionTitle={missionData?.title||null}
+              retoActual={retoActual} setRetoActual={setRetoActual} todosRetos={missionData?.retos||[]}
             />
           </div>
         </div>
       )}
-      {tab==="missions"&&<Page title="🗺️ Misiones"><MissionMap misiones={misiones} onSelect={id=>{setMission(id);setTab("chat");}} /></Page>}
+      {tab==="missions"&&<Page title="🗺️ Misiones"><MissionMap misiones={misiones} onSelect={(mId, reto)=>{setMission(mId);if(reto)setRetoActual(reto);setTab("chat");}} /></Page>}
       {tab==="team"&&<EquipoPanel user={user} equipo={equipo} setEquipo={setEquipo} onIrChat={()=>setTab("chat")} />}
       {tab==="progress"&&<Page title="⭐ Mi Progreso">
         <InfoBox title={`🎓 ${user.name}`}>
@@ -1864,7 +1898,7 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
 // NEXUS CHAT — Ejercicios prácticos · Límite 10 interacciones
 //              Graduación progresiva · Protección anti-copia
 // ═══════════════════════════════════════════════════════════════
-function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle }) {
+function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle, retoActual, setRetoActual, todosRetos }) {
   const isMobile = useIsMobile();
 
   const welcomeMsg = misionData
@@ -1879,41 +1913,84 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const [xpAnim, setXpAnim] = useState(null);
   const endRef = useRef(null);
 
-  // ── Contador de interacciones — máximo 10 por reto ────────────
+  // ── Contador de interacciones — 10 por reto ───────────────────
   const [interactionCount, setInteractionCount] = useState(0);
   const MAX_INT = 10;
 
-  // ── Protección anti-copia/pegado ──────────────────────────────
+  // ── Anti-copia ────────────────────────────────────────────────
   const [pasteCount, setPasteCount] = useState(0);
   const [showPasteWarning, setShowPasteWarning] = useState(false);
   const [misionAnulada, setMisionAnulada] = useState(false);
 
+  // ── Historial del reto anterior ───────────────────────────────
+  const [historialPrevio, setHistorialPrevio] = useState([]);
+  const [showHistPrevio, setShowHistPrevio] = useState(false);
+
   const retoCompleto = interactionCount >= MAX_INT;
 
-  // Reset al cambiar de misión
+  // Reset al cambiar de MISIÓN (no de reto — el reto lo maneja el siguiente effect)
   useEffect(() => {
     setInteractionCount(0);
     setXp(0);
     setMisionAnulada(false);
     setPasteCount(0);
     setShowPasteWarning(false);
+    setHistorialPrevio([]);
+    setShowHistPrevio(false);
     setMsgs([{ role:"assistant", content: welcomeMsg }]);
   }, [misionId]); // eslint-disable-line
 
-  // Cargar historial previo
+  // Reset + cargar historial al cambiar de RETO
   useEffect(() => {
-    if (!user?.id || compact) return;
+    if (!misionId) return; // sin misión, no hay retos
+    setInteractionCount(0);
+    setMisionAnulada(false);
+    setPasteCount(0);
+    setShowPasteWarning(false);
+    setShowHistPrevio(false);
+
+    const retoId = retoActual?.id ?? null;
+    const retoTitle = retoActual?.title || "";
+
+    // Mensaje de bienvenida al reto
+    const bienvenidaReto = retoActual
+      ? `🎯 **Reto ${retoActual.id}: ${retoTitle}** ${"⭐".repeat(retoActual.stars||1)}\n\n${retoActual.desc ? `📋 ${retoActual.desc}\n\n` : ""}¡Voy a generarte un ejercicio práctico ahora mismo! 💡\n\n💡 *Si respondes todo correctamente en un solo mensaje → obtienes **+25 XP máximo** y puedes pasar al siguiente reto de inmediato.*`
+      : welcomeMsg;
+
+    if (!user?.id || compact) {
+      setMsgs([{ role:"assistant", content: bienvenidaReto }]);
+      setHistorialCargado(true);
+      return;
+    }
+
     setHistorialCargado(false);
-    loadChatHistory(user.id, misionId).then(hist => {
+
+    // Cargar historial de ESTE reto
+    loadChatHistory(user.id, misionId, retoId).then(hist => {
       if (hist.length > 0) {
-        const cont = { role:"assistant", content:`📚 Continuando donde lo dejaste... **${hist.length} mensajes** previos en esta misión. ¿Seguimos? 💪` };
-        setMsgs([{ role:"assistant", content: welcomeMsg }, ...hist, cont]);
-        const prevInteractions = hist.filter(m => m.role === "user").length;
-        setInteractionCount(Math.min(prevInteractions, MAX_INT));
+        const cont = { role:"assistant", content:`📚 *Continuando el Reto ${retoActual?.id||""}... ${hist.filter(m=>m.role==="user").length} interacciones previas registradas.* ¿Seguimos? 💪` };
+        setMsgs([{ role:"assistant", content: bienvenidaReto }, ...hist, cont]);
+        const prevCount = hist.filter(m => m.role === "user").length;
+        setInteractionCount(Math.min(prevCount, MAX_INT));
+        // Restaurar XP aproximado del historial (último xp_at_time del historial)
+      } else {
+        setMsgs([{ role:"assistant", content: bienvenidaReto }]);
       }
       setHistorialCargado(true);
     });
-  }, [user?.id, misionId]); // eslint-disable-line
+
+    // Cargar historial del reto ANTERIOR para referencia
+    if (retoActual && retoActual.idx > 0 && todosRetos?.length > 0) {
+      const retoAnterior = todosRetos[retoActual.idx - 1];
+      if (retoAnterior) {
+        loadChatHistory(user.id, misionId, retoAnterior.id).then(hist => {
+          if (hist.length > 0) setHistorialPrevio(hist);
+        });
+      }
+    } else {
+      setHistorialPrevio([]);
+    }
+  }, [retoActual?.id, misionId]); // eslint-disable-line
 
   useEffect(() => { endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
 
@@ -1990,7 +2067,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
     try {
       if (user?.id && !compact) {
-        saveChatMsg(user, "user", t, misionId, misionTitle||misionData?.title, xp, equipo?.nombre||null);
+        saveChatMsg(user, "user", t, misionId, misionTitle||misionData?.title, xp, equipo?.nombre||null, retoActual?.id ?? null);
       }
 
       const currentPrompt = buildCurrentPrompt(newCount);
@@ -2007,14 +2084,16 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
       setMsgs(p => [...p, {role:"assistant", content:replyFinal}]);
 
-      // Calcular XP según señal de NEXUS (25/15/5)
-      let xpGanado = 5;
-      if (/25 XP|\+25|⭐⭐⭐|¡Maestr|maestr/i.test(reply))          xpGanado = 25;
-      else if (/15 XP|\+15|⭐⭐|¡Bien hecho|exacto|correcto|¡así/i.test(reply)) xpGanado = 15;
-      addXP(xpGanado);
+      // XP por mérito: 0 por defecto, solo si NEXUS lo señala explícitamente
+      let xpGanado = 0;
+      if (/\+25 XP|25 XP|⭐⭐⭐|¡Maestr|Maestría/i.test(reply))           xpGanado = 25;
+      else if (/\+15 XP|15 XP|⭐⭐ ¡Bien|Bien hecho/i.test(reply))        xpGanado = 15;
+      else if (/\+5 XP|5 XP|⭐ ¡Sigue|Sigue intentando/i.test(reply))     xpGanado = 5;
+      if (xpGanado > 0) addXP(xpGanado);
 
+      const retoId = retoActual?.id ?? null;
       if (user?.id && !compact && !reply.startsWith("⚠️")) {
-        saveChatMsg(user, "assistant", replyFinal, misionId, misionTitle||misionData?.title, xp+xpGanado, equipo?.nombre||null);
+        saveChatMsg(user, "assistant", replyFinal, misionId, misionTitle||misionData?.title, xp+xpGanado, equipo?.nombre||null, retoId);
       }
     } catch(err) {
       setMsgs(p => [...p, {role:"assistant", content:"⚠️ Error de conexión. Verifica tu internet."}]);
@@ -2062,6 +2141,41 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         </div>
       )}
 
+      {/* ── Panel: historial reto anterior ── */}
+      {historialPrevio.length > 0 && retoActual && (
+        <div style={{ borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+          <button onClick={() => setShowHistPrevio(v=>!v)}
+            style={{ width:"100%", padding:"6px 14px", background:`${C.accent2}10`,
+              border:"none", borderBottom: showHistPrevio?`1px solid ${C.accent2}33`:"none",
+              color:C.accent2, fontSize:11, cursor:"pointer", textAlign:"left",
+              display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span>📚 Ver conversación del Reto {todosRetos?.[retoActual.idx-1]?.id} anterior ({historialPrevio.filter(m=>m.role==="user").length} interacciones)</span>
+            <span>{showHistPrevio ? "▲ Ocultar" : "▼ Ver"}</span>
+          </button>
+          {showHistPrevio && (
+            <div style={{ maxHeight:220, overflowY:"auto", padding:"10px 14px",
+              background:`${C.accent2}06`, display:"flex", flexDirection:"column", gap:8 }}>
+              <div style={{ fontSize:10, color:C.muted, textAlign:"center", marginBottom:4 }}>
+                — Historial del Reto {todosRetos?.[retoActual.idx-1]?.id}: {todosRetos?.[retoActual.idx-1]?.title} —
+              </div>
+              {historialPrevio.map((m,i) => (
+                <div key={i} style={{ display:"flex", gap:7, alignItems:"flex-start",
+                  ...(m.role==="user"?{justifyContent:"flex-end",alignSelf:"flex-end"}:{}), maxWidth:"90%" }}>
+                  {m.role==="assistant" && <div style={{ width:22,height:22,borderRadius:"50%",background:`${C.accent2}20`,border:`1px solid ${C.accent2}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.accent2,flexShrink:0 }}>⬡</div>}
+                  <div style={{ background:m.role==="user"?`${C.accent2}15`:C.surface,
+                    border:`1px solid ${m.role==="user"?C.accent2+"33":C.border}`,
+                    borderRadius:m.role==="user"?"10px 2px 10px 10px":"2px 10px 10px 10px",
+                    padding:"7px 10px", opacity:0.85 }}>
+                    <div dangerouslySetInnerHTML={{ __html:sanitizeChat(m.content||"") }}
+                      style={{ fontSize:11, lineHeight:1.6, color:C.muted }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Mensajes ── */}
       <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", minHeight:0, padding:isMobile?"10px 10px 4px":"16px 14px", display:"flex", flexDirection:"column", gap:10 }}>
         {msgs.map((m,i)=>(
@@ -2077,15 +2191,30 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         {msgs.length===1&&!loading&&<div><div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>💡 Sugerencias:</div><div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>{SUGS.map((q,i)=><button key={i} style={{ background:"transparent",border:`1px solid ${C.border}`,color:C.accent,padding:isMobile?"6px 10px":"6px 12px",borderRadius:20,fontSize:11,cursor:"pointer",fontFamily:"inherit" }} onClick={()=>send(q)}>{q}</button>)}</div></div>}
 
         {/* Banner de reto completado */}
-        {retoCompleto && !misionAnulada && (
-          <div style={{ background:`${C.accent3}15`, border:`2px solid ${C.accent3}`, borderRadius:14, padding:"18px 20px", textAlign:"center", margin:"8px 0" }}>
-            <div style={{ fontSize:36, marginBottom:8 }}>🏆</div>
-            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:13, color:C.accent3, fontWeight:900, marginBottom:8 }}>¡Reto Completado! — 10/10</div>
-            <div style={{ fontSize:40, fontWeight:900, fontFamily:"'Orbitron',monospace", color:notaColor(xpToNota(xp)), marginBottom:4 }}>{xpToNota(xp).toFixed(1)}</div>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>{xp} XP · {msgs.filter(m=>m.role==="user").length} respuestas</div>
-            <div style={{ fontSize:12, color:C.accent }}>Elige otro reto en 🗺️ Misiones para continuar</div>
-          </div>
-        )}
+        {retoCompleto && !misionAnulada && (() => {
+          const sigReto = retoActual && todosRetos?.length > 0
+            ? todosRetos[retoActual.idx + 1] || null : null;
+          return (
+            <div style={{ background:`${C.accent3}15`, border:`2px solid ${C.accent3}`, borderRadius:14, padding:"18px 20px", textAlign:"center", margin:"8px 0" }}>
+              <div style={{ fontSize:36, marginBottom:6 }}>🏆</div>
+              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:12, color:C.accent3, fontWeight:900, marginBottom:6 }}>
+                {retoActual ? `¡Reto ${retoActual.id} Completado! — 10/10` : "¡Reto Completado! — 10/10"}
+              </div>
+              <div style={{ fontSize:38, fontWeight:900, fontFamily:"'Orbitron',monospace", color:notaColor(xpToNota(xp)), marginBottom:2 }}>{xpToNota(xp).toFixed(1)}</div>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>{xp} XP · {msgs.filter(m=>m.role==="user").length} interacciones</div>
+              {sigReto ? (
+                <button onClick={() => {
+                  if (setRetoActual) setRetoActual({ id: sigReto.id, title: sigReto.title, stars: sigReto.stars, idx: retoActual.idx + 1, desc: sigReto.desc });
+                }} style={{ padding:"10px 24px", background:`linear-gradient(135deg,${C.accent3},${C.accent})`, border:"none", borderRadius:12, color:"#0d1526", fontWeight:900, fontSize:13, cursor:"pointer", marginBottom:8 }}>
+                  🚀 Iniciar Reto {sigReto.id}: {sigReto.title} →
+                </button>
+              ) : (
+                <div style={{ fontSize:12, color:C.accent3, fontWeight:700 }}>🎉 ¡Completaste todos los retos de esta misión!</div>
+              )}
+              <div style={{ fontSize:11, color:C.muted, marginTop:6 }}>También puedes elegir otro reto en 🗺️ Misiones</div>
+            </div>
+          );
+        })()}
         <div ref={endRef} />
       </div>
 
@@ -2187,13 +2316,20 @@ function MissionMap({ misiones, onSelect }) {
           {onSelect&&<button style={{ padding:"6px 12px",background:m.color,border:"none",borderRadius:9,color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer" }} onClick={e=>{ e.stopPropagation(); onSelect(m.id); }}>Iniciar ➤</button>}
         </div>
       </div>
-      {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map(r=>(
-        <div key={r.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:C.surface,borderRadius:8,borderLeft:`3px solid ${m.color}66` }}>
-          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:12,color:m.color,width:18 }}>{r.id}</div>
-          <div>
+      {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map((r,ri)=>(
+        <div key={r.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:C.surface,borderRadius:8,borderLeft:`3px solid ${m.color}66`,alignItems:"flex-start" }}>
+          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:m.color,width:22,flexShrink:0,paddingTop:2 }}>{r.id}</div>
+          <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:12,fontWeight:700,marginBottom:3 }}>{r.title} {"⭐".repeat(r.stars)}{r.duracion && <span style={{ marginLeft:8, fontSize:10, color:"#06b6d4", fontWeight:400 }}>⏱️ {r.duracion} {r.tipo_duracion==="dias"?"día(s)":"hora(s)"}</span>}</div>
             <div style={{ fontSize:11,color:C.muted }}>{r.desc}</div>
           </div>
+          {onSelect && (
+            <button onClick={e=>{ e.stopPropagation(); onSelect(m.id, { id:r.id, title:r.title, stars:r.stars, idx:ri, desc:r.desc }); }}
+              style={{ padding:"5px 12px", background:`${m.color}22`, border:`1px solid ${m.color}55`,
+                borderRadius:8, color:m.color, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>
+              ▶ Iniciar
+            </button>
+          )}
         </div>
       ))}</div>}
     </div>
