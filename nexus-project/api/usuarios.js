@@ -35,11 +35,43 @@ module.exports = async function handler(req, res) {
   if (req.method === "POST") {
     const { accion } = req.body;
 
-    // Limpiar progreso (acción existente)
+    // Limpiar progreso
     if (accion === "limpiar_progreso") {
       const { error } = await supabase.from("nexus_progreso").delete().neq("id", 0);
       if (error) return res.status(200).json({ error: error.message });
       return res.status(200).json({ success: true });
+    }
+
+    // ── Disolver TODOS los equipos ────────────────────────────
+    // Pone equipo_nombre = null en nexus_chats (conserva historial de chat)
+    // Si docente_id se pasa, solo disuelve equipos de sus misiones
+    if (accion === "limpiar_equipos") {
+      const { docente_id } = req.body;
+      let q = supabase.from("nexus_chats").update({ equipo_nombre: null }).not("equipo_nombre", "is", null);
+
+      if (docente_id) {
+        // Solo los equipos de las misiones de este docente
+        const { data: misiones } = await supabase
+          .from("nexus_misiones").select("id").eq("docente_id", String(docente_id));
+        const misionIds = (misiones || []).map(m => m.id);
+        if (misionIds.length > 0) {
+          q = supabase.from("nexus_chats").update({ equipo_nombre: null })
+            .not("equipo_nombre", "is", null)
+            .in("mision_id", misionIds);
+        }
+        // También modo libre (mision_id null) de sus estudiantes
+        const { data: ests } = await supabase
+          .from("nexus_progreso").select("estudiante_id").in("mision_id", misionIds.length > 0 ? misionIds : [0]).limit(3000);
+        const estIds = [...new Set((ests||[]).map(e=>String(e.estudiante_id)))];
+        if (estIds.length > 0) {
+          await supabase.from("nexus_chats").update({ equipo_nombre: null })
+            .not("equipo_nombre", "is", null).is("mision_id", null).in("estudiante_id", estIds);
+        }
+      }
+
+      const { error, count } = await q;
+      if (error) return res.status(200).json({ error: error.message });
+      return res.status(200).json({ success: true, disueltos: count || 0 });
     }
 
     // ── Crear docente nuevo ──────────────────────────────────
