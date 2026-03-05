@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import * as XLSX from "xlsx-js-style";
 
 // ─── Responsive hook ──────────────────────────────────────────
 // isMobile = true para teléfonos (<768px)  isMobile = true para tablets (<1024px)
@@ -138,73 +139,174 @@ const deleteMision = async (id, docente_id, role) => {
   await fetch(`/api/misiones?${new URLSearchParams({id, docente_id:docente_id||"", role:role||"teacher"})}`, { method:"DELETE" });
 };
 
-// ─── Excel download ───────────────────────────────────────────
-const downloadExcel = (rows, filename="reporte_nexus") => {
-  if (!rows?.length) return;
-  const headers = Object.keys(rows[0]);
-  // Usar tabulador como separador para que Excel respete los decimales
-  const csv = [headers.join("\t"), ...rows.map(r=>
-    headers.map(h => {
-      const v = r[h] ?? "";
-      // Números decimales: forzar formato con coma decimal para Excel en español
-      if (typeof v === "number") return String(v).replace(".", ",");
-      return String(v);
-    }).join("\t")
-  )].join("\n");
-  const blob = new Blob(["\uFEFF"+csv], { type:"text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href=url; a.download=filename+".csv"; a.click();
-  URL.revokeObjectURL(url);
-};
+// ─── Colores para notas ──────────────────────────────────────
+const notaXlsxColor = (n) =>
+  n >= 4.5 ? "10D98A" : n >= 4.0 ? "22C55E" : n >= 3.0 ? "EAB308" : n >= 2.0 ? "F97316" : "EF4444";
 
-// ─── Excel por misiones (columna por misión + nota definitiva) ──
-const downloadExcelMisiones = (topEstudiantes, misiones, filename="notas_por_mision") => {
-  if (!topEstudiantes?.length || !misiones?.length) return;
+// ─── XLSX elegante ────────────────────────────────────────────
+const downloadExcelMisiones = (topEstudiantes, misiones, filename = "notas_nexus", docenteNombre = "") => {
+  if (!topEstudiantes?.length) return;
 
-  // Ordenar por apellido
   const sorted = [...topEstudiantes].sort((a, b) => {
-    const apA = (a.nombre_estudiante||"").split(" ").slice(1).join(" ") || a.nombre_estudiante || "";
-    const apB = (b.nombre_estudiante||"").split(" ").slice(1).join(" ") || b.nombre_estudiante || "";
-    return apA.localeCompare(apB, "es");
+    const ap = s => (s || "").split(" ").slice(1).join(" ") || s || "";
+    return ap(a.nombre_estudiante).localeCompare(ap(b.nombre_estudiante), "es");
   });
 
-  // Encabezados: info fija + una columna por misión + Nota Definitiva
-  const headers = ["#", "Apellidos", "Nombres", "Grado", "Grupo",
-    ...misiones.map(m => m.title),
-    "Nota Definitiva"
+  const wb = XLSX.utils.book_new();
+  const misionesConDatos = (misiones || []).filter(m =>
+    sorted.some(e => e.misiones?.[m.id])
+  );
+
+  // ── Estilos base ─────────────────────────────────────────
+  const sTitle = { font:{ name:"Arial", sz:16, bold:true, color:{rgb:"00C8FF"} }, alignment:{ horizontal:"left" } };
+  const sSub   = { font:{ name:"Arial", sz:10, color:{rgb:"4A6080"} } };
+  const sHdr   = {
+    font:{ name:"Arial", sz:11, bold:true, color:{rgb:"FFFFFF"} },
+    fill:{ fgColor:{rgb:"0D1526"} },
+    alignment:{ horizontal:"center", vertical:"center", wrapText:true },
+    border:{ bottom:{style:"medium",color:{rgb:"00C8FF"}} }
+  };
+  const sHdrMision = (color) => ({
+    font:{ name:"Arial", sz:10, bold:true, color:{rgb:"FFFFFF"} },
+    fill:{ fgColor:{rgb: color.replace("#","").toUpperCase() || "8B5CF6"} },
+    alignment:{ horizontal:"center", vertical:"center", wrapText:true },
+    border:{ bottom:{style:"medium",color:{rgb:"FFFFFF"}} }
+  });
+  const sHdrFinal = {
+    font:{ name:"Arial", sz:11, bold:true, color:{rgb:"0D1526"} },
+    fill:{ fgColor:{rgb:"10D98A"} },
+    alignment:{ horizontal:"center", vertical:"center" },
+    border:{ bottom:{style:"medium",color:{rgb:"0D1526"}} }
+  };
+  const sCell = (i) => ({
+    font:{ name:"Arial", sz:11 },
+    fill:{ fgColor:{rgb: i%2===0 ? "111E33" : "0D1526"} },
+    alignment:{ horizontal:"left", vertical:"center" },
+    border:{ bottom:{style:"thin",color:{rgb:"1A3050"}} }
+  });
+  const sCellCenter = (i) => ({
+    ...sCell(i), alignment:{ horizontal:"center", vertical:"center" }
+  });
+  const sNota = (nota, i) => ({
+    font:{ name:"Arial", sz:12, bold:true, color:{rgb: notaXlsxColor(nota)} },
+    fill:{ fgColor:{rgb: i%2===0 ? "111E33" : "0D1526"} },
+    alignment:{ horizontal:"center", vertical:"center" },
+    border:{ bottom:{style:"thin",color:{rgb:"1A3050"}} }
+  });
+  const sNotaFinal = (nota, i) => ({
+    font:{ name:"Arial", sz:13, bold:true, color:{rgb:"0D1526"} },
+    fill:{ fgColor:{rgb: notaXlsxColor(nota)+"44".replace("44","") || "10D98A"} },
+    alignment:{ horizontal:"center", vertical:"center" },
+    border:{ bottom:{style:"thin",color:{rgb:"1A3050"}}, left:{style:"medium",color:{rgb:"10D98A"}} }
+  });
+  const sEmpty = { font:{ name:"Arial", sz:11, color:{rgb:"4A6080"} }, alignment:{horizontal:"center"} };
+
+  // ── Construir hoja ────────────────────────────────────────
+  const ws = {};
+  const totalCols = 5 + misionesConDatos.length + 1;
+  const encodeCol = (c) => { let s=""; while(c>=0){s=String.fromCharCode(65+c%26)+s;c=Math.floor(c/26)-1;} return s; };
+  const cell = (r,c,v,s) => { ws[encodeCol(c)+r] = {v, s, t: typeof v==="number"?"n":"s"}; };
+
+  // Fila 1: Título
+  ws["A1"] = { v:"📊 NEXUS · Reporte de Notas", s:sTitle, t:"s" };
+  ws["A2"] = { v:`Docente: ${docenteNombre || "—"}   ·   Generado: ${new Date().toLocaleDateString("es-CO", {day:"2-digit",month:"long",year:"numeric"})}`, s:sSub, t:"s" };
+  ws["A3"] = { v:"", s:{}, t:"s" };
+
+  // Merge título
+  ws["!merges"] = [
+    {s:{r:0,c:0},e:{r:0,c:totalCols-1}},
+    {s:{r:1,c:0},e:{r:1,c:totalCols-1}},
+    {s:{r:2,c:0},e:{r:2,c:totalCols-1}},
   ];
 
-  const rows = sorted.map((est, i) => {
+  // Fila 4: encabezados
+  const HDR_ROW = 4;
+  const fixedHdrs = ["#","Apellidos","Nombres","Grado","Grupo"];
+  fixedHdrs.forEach((h,c) => cell(HDR_ROW, c, h, sHdr));
+  misionesConDatos.forEach((m, i) => {
+    cell(HDR_ROW, 5+i, m.title || `Misión ${i+1}`, sHdrMision(m.color || "#8B5CF6"));
+  });
+  cell(HDR_ROW, 5+misionesConDatos.length, "NOTA DEFINITIVA", sHdrFinal);
+
+  // Filas de datos
+  sorted.forEach((est, i) => {
+    const ROW = HDR_ROW + 1 + i;
     const partes = (est.nombre_estudiante || "").split(" ");
-    const nombres   = partes[0] || "";
-    const apellidos = partes.slice(1).join(" ") || "";
-    const row = {
-      "#": i + 1,
-      "Apellidos": apellidos || est.nombre_estudiante,
-      "Nombres":   nombres,
-      "Grado":     est.grado || "—",
-      "Grupo":     est.grupo || "—",
-    };
-    // Nota por cada misión (decimal con coma para Excel en español)
-    misiones.forEach(m => {
-      const mData = est.misiones?.[m.id];
-      row[m.title] = mData ? String(mData.nota.toFixed(1)).replace(".", ",") : "—";
+    const nombres   = partes.slice(0, Math.ceil(partes.length/2)).join(" ");
+    const apellidos = partes.slice(Math.ceil(partes.length/2)).join(" ") || partes[0];
+
+    cell(ROW, 0, i+1,         sCellCenter(i));
+    cell(ROW, 1, apellidos,   sCell(i));
+    cell(ROW, 2, nombres,     sCell(i));
+    cell(ROW, 3, est.grado||"—", sCellCenter(i));
+    cell(ROW, 4, est.grupo||"—", sCellCenter(i));
+
+    misionesConDatos.forEach((m, mi) => {
+      const md = est.misiones?.[m.id];
+      if (md && md.nota > 0) {
+        const n = typeof md.nota === "number" ? md.nota : parseFloat(md.nota) || 1.0;
+        cell(ROW, 5+mi, n, sNota(n, i));
+      } else {
+        ws[encodeCol(5+mi)+ROW] = { v:"—", s:sEmpty, t:"s" };
+      }
     });
-    row["Nota Definitiva"] = String((est.nota_definitiva || 1.0).toFixed(1)).replace(".", ",");
-    return row;
+
+    const nd = est.nota_definitiva || 1.0;
+    cell(ROW, 5+misionesConDatos.length, nd, sNotaFinal(nd, i));
   });
 
-  // Construir TSV
-  const tsv = [
-    headers.join("\t"),
-    ...rows.map(r => headers.map(h => r[h] ?? "—").join("\t"))
-  ].join("\n");
+  // Dimensiones
+  ws["!ref"] = `A1:${encodeCol(totalCols-1)}${HDR_ROW + sorted.length}`;
+  ws["!rows"] = [
+    { hpt:28 }, { hpt:18 }, { hpt:10 }, { hpt:36 },
+    ...sorted.map(() => ({ hpt:26 }))
+  ];
+  ws["!cols"] = [
+    { wch:5 }, { wch:24 }, { wch:20 }, { wch:8 }, { wch:8 },
+    ...misionesConDatos.map(() => ({ wch:18 })),
+    { wch:18 }
+  ];
+  ws["!freeze"] = { xSplit:0, ySplit:HDR_ROW };
 
-  const blob = new Blob(["\uFEFF" + tsv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename + ".csv"; a.click();
-  URL.revokeObjectURL(url);
+  XLSX.utils.book_append_sheet(wb, ws, "Notas por Misión");
+
+  // ── Hoja resumen ─────────────────────────────────────────
+  const ws2 = {};
+  ws2["A1"] = { v:"Misión", s:sHdr, t:"s" };
+  ws2["B1"] = { v:"Estudiantes activos", s:sHdr, t:"s" };
+  ws2["C1"] = { v:"Nota promedio", s:sHdr, t:"s" };
+  ws2["D1"] = { v:"XP total", s:sHdr, t:"s" };
+
+  misionesConDatos.forEach((m, i) => {
+    const R = i + 2;
+    const activos = sorted.filter(e => e.misiones?.[m.id]).length;
+    const notas = sorted.map(e=>e.misiones?.[m.id]?.nota).filter(Boolean);
+    const promedio = notas.length ? Math.round(notas.reduce((s,n)=>s+n,0)/notas.length*10)/10 : 0;
+    const xpTotal = sorted.reduce((s,e)=>s+(e.misiones?.[m.id]?.xp||0),0);
+
+    ws2[`A${R}`] = { v:`${m.icon||"📻"} ${m.title}`, s:sCell(i), t:"s" };
+    ws2[`B${R}`] = { v:activos, s:sCellCenter(i), t:"n" };
+    ws2[`C${R}`] = { v:promedio, s:sNota(promedio,i), t:"n" };
+    ws2[`D${R}`] = { v:xpTotal, s:sCellCenter(i), t:"n" };
+  });
+  ws2["!ref"] = `A1:D${misionesConDatos.length+1}`;
+  ws2["!cols"] = [{wch:30},{wch:20},{wch:16},{wch:14}];
+  ws2["!rows"] = [{hpt:30},...misionesConDatos.map(()=>({hpt:24}))];
+  XLSX.utils.book_append_sheet(wb, ws2, "Resumen Misiones");
+
+  XLSX.writeFile(wb, filename + ".xlsx");
+};
+
+// Alias para reportes simples (sin misiones)
+const downloadExcel = (rows, filename = "reporte_nexus") => {
+  if (!rows?.length) return;
+  downloadExcelMisiones(rows.map(r => ({
+    nombre_estudiante: `${r.Nombres||""} ${r.Apellidos||""}`.trim() || r.nombre || "—",
+    grado: r.Grado || r.grado,
+    grupo: r.Grupo || r.grupo,
+    nota_definitiva: parseFloat(r["Nota"] || r.nota || 1),
+    misiones: {},
+  })), [], filename);
 };
 
 const COLORES_MISION = ["#f97316","#eab308","#22c55e","#00c8ff","#8b5cf6","#ec4899","#14b8a6","#f43f5e"];
@@ -422,9 +524,12 @@ function DashboardPanel({ user, misiones }) {
           <button onClick={()=>downloadExcelMisiones(
               stats?.topEstudiantes||[],
               stats?.misiones||[],
-              "notas_por_mision"
-            )} style={{ padding:"6px 10px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>
-            ⬇️ Excel por Misiones
+              `NEXUS_Notas_${new Date().toLocaleDateString("es-CO").replace(/\//g,"-")}`,
+              user?.name
+            )} style={{ padding:"7px 14px", background:`linear-gradient(135deg,${C.accent3}33,${C.accent3}11)`,
+              border:`1px solid ${C.accent3}66`, borderRadius:9, color:C.accent3, fontSize:11,
+              cursor:"pointer", fontWeight:700 }}>
+            📥 Descargar XLSX
           </button>
         </div>
         {top.length>0 ? top.slice(0,15).map((e,i)=>(
@@ -760,32 +865,57 @@ function ProgresoPanel({ user }) {
             <div style={{ marginBottom:10 }}>
               <button onClick={()=>downloadExcelMisiones(
                 estudiantesFiltrados, stats?.misiones||[],
-                `notas_G${filtroGrado}_Grp${filtroGrupo}`.replace(/\s+/g,"_")
-              )} style={{ padding:"6px 12px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:11, cursor:"pointer" }}>
-                ⬇️ Excel este grupo
+                `NEXUS_Grado${filtroGrado}_Grupo${filtroGrupo}_${new Date().toLocaleDateString("es-CO").replace(/\//g,"-")}`,
+                user.name
+              )} style={{ padding:"7px 14px", background:`linear-gradient(135deg,${C.accent3}33,${C.accent3}11)`,
+                border:`1px solid ${C.accent3}66`, borderRadius:9, color:C.accent3, fontSize:11,
+                cursor:"pointer", fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+                📥 Descargar XLSX · Grado {filtroGrado} Grp.{filtroGrupo}
               </button>
               <button onClick={()=>downloadExcelMisiones(
                 todosEstudiantes, stats?.misiones||[],
-                `notas_${user.subject||user.name||"docente"}_todos`.replace(/\s+/g,"_")
-              )} style={{ marginLeft:8, padding:"6px 12px", background:`${C.accent}11`, border:`1px solid ${C.accent}44`, borderRadius:8, color:C.accent, fontSize:11, cursor:"pointer" }}>
-                ⬇️ Excel todos mis estudiantes
+                `NEXUS_TodosMisEstudiantes_${new Date().toLocaleDateString("es-CO").replace(/\//g,"-")}`,
+                user.name
+              )} style={{ padding:"7px 14px", background:`linear-gradient(135deg,${C.accent}22,${C.accent}11)`,
+                border:`1px solid ${C.accent}44`, borderRadius:9, color:C.accent, fontSize:11,
+                cursor:"pointer", fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+                📥 Descargar XLSX · Todos mis estudiantes
               </button>
             </div>
             {estudiantesFiltrados.length===0
               ? <div style={{ color:C.muted, fontSize:13 }}>Sin actividad en este grupo aún.</div>
               : estudiantesFiltrados.map((e, i) => {
                   const nota = e.nota_definitiva || xpToNota(e.xp_total);
+                  const misionesEst = Object.entries(e.misiones||{});
+                  const misionesConNota = (stats?.misiones||[]).filter(m => e.misiones?.[m.id]);
                   return (
-                    <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:C.surface, borderRadius:10, marginBottom:6, border:`1px solid ${C.border}` }}>
-                      <span style={{ fontFamily:"'Orbitron',monospace", color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":C.muted, fontSize:10, width:22, fontWeight:900 }}>#{i+1}</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div>
-                        <div style={{ fontSize:10, color:C.muted }}>Nivel {e.nivel||1} · {e.xp_total||0} XP</div>
+                    <div key={i} style={{ background:C.surface, borderRadius:10, marginBottom:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px" }}>
+                        <span style={{ fontFamily:"'Orbitron',monospace", color:i===0?"#ffd700":i===1?"#c0c0c0":i===2?"#cd7f32":C.muted, fontSize:10, width:22, fontWeight:900, flexShrink:0 }}>#{i+1}</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.nombre_estudiante}</div>
+                          <div style={{ fontSize:10, color:C.muted }}>Nivel {e.nivel||1} · {e.xp_total||0} XP</div>
+                        </div>
+                        <div style={{ textAlign:"right", flexShrink:0 }}>
+                          <div style={{ fontSize:10, color:C.muted }}>Nota definitiva</div>
+                          <div style={{ fontFamily:"'Orbitron',monospace", fontSize:18, fontWeight:900, color:notaColor(nota) }}>{nota.toFixed(1)}</div>
+                        </div>
                       </div>
-                      <div style={{ textAlign:"right", flexShrink:0 }}>
-                        <div style={{ fontFamily:"'Orbitron',monospace", color:C.accent3, fontWeight:700, fontSize:11 }}>{e.xp_total||0} XP</div>
-                        <div style={{ fontSize:13, fontWeight:800, color:notaColor(nota) }}>{nota.toFixed(1)}</div>
-                      </div>
+                      {misionesConNota.length > 0 && (
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap", padding:"6px 12px 10px", borderTop:`1px solid ${C.border}` }}>
+                          {misionesConNota.map(m => {
+                            const nd = e.misiones[m.id]?.nota || 1.0;
+                            return (
+                              <div key={m.id} style={{ display:"flex", flexDirection:"column", alignItems:"center",
+                                background:`${m.color||C.accent}15`, border:`1px solid ${m.color||C.accent}33`,
+                                borderRadius:8, padding:"4px 10px", minWidth:70 }}>
+                                <div style={{ fontSize:9, color:C.muted, marginBottom:2, textAlign:"center", maxWidth:80, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.icon} {m.title}</div>
+                                <div style={{ fontFamily:"'Orbitron',monospace", fontSize:14, fontWeight:900, color:notaColor(nd) }}>{nd.toFixed(1)}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -2499,11 +2629,32 @@ function EquiposPanel({ user }) {
     <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch",
       padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
 
-      <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>👥 Equipos</h1>
-      <p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>
-        Equipos formados por los estudiantes. Filtra por grado, grupo y misión.
-        Haz clic en un equipo para ver el informe completo.
-      </p>
+      {/* Encabezado + botón disolver todos */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+        <div>
+          <h1 style={{ ...ptitle, fontSize: isMobile?17:22, margin:0 }}>👥 Equipos</h1>
+          <p style={{ fontSize:12, color:C.muted, marginTop:4, marginBottom:0 }}>
+            Equipos formados por los estudiantes. Clic en un equipo para ver el informe completo.
+          </p>
+        </div>
+        {equipos.length > 0 && (
+          <button onClick={async () => {
+            if (!confirm(`¿Disolver TODOS los equipos (${equipos.length})?\nEsta acción no se puede deshacer.`)) return;
+            const r = await fetch("/api/usuarios", {
+              method:"POST", headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({ accion:"limpiar_equipos", docente_id: user.id })
+            });
+            const d = await r.json();
+            if (d.success) { setEquipos([]); setSelEquipo(null); }
+            else alert("Error: " + d.error);
+          }} style={{ padding:"8px 16px", background:"#ef444415",
+            border:"1px solid #ef444455", borderRadius:10, color:"#ef4444",
+            fontSize:11, cursor:"pointer", fontWeight:700, whiteSpace:"nowrap",
+            display:"flex", alignItems:"center", gap:6 }}>
+            🗑️ Disolver todos los equipos
+          </button>
+        )}
+      </div>
 
       {loading && <div style={{ color:C.muted,fontSize:13 }}>⏳ Cargando equipos...</div>}
       {error   && <div style={{ background:"#ff444422",border:"1px solid #ff444444",color:"#ff7777",
