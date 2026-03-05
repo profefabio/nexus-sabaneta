@@ -221,7 +221,7 @@ Siempre en español colombiano, cálido y motivador.`;
 const buildMissionPrompt = (mision, grade="7-11", extraEquipo="", interaccionesUsadas=0) => {
   if (!mision) return buildPrompt("Tecnolog\u00eda e Inform\u00e1tica", grade, extraEquipo);
   const retosTexto = (mision.retos||[]).map((r,i)=>
-    `  Reto ${r.id}: ${r.title} (${"\u2b50".repeat(r.stars)}) \u2014 ${r.desc||"Sin descripci\u00f3n"}`
+    `  Reto ${r.id}: ${r.title} (${"\u2b50".repeat(r.stars)})${r.duracion?` [${r.duracion} ${r.tipo_duracion==="dias"?"día(s)":"hora(s)"}]`:""} \u2014 ${r.desc||"Sin descripci\u00f3n"}`
   ).join("\n");
   const restantes = Math.max(0, 10 - interaccionesUsadas);
   return `Eres NEXUS, tutor STEM gamificado para estudiantes de grado ${grade} de la I.E. de Sabaneta, Colombia.
@@ -802,22 +802,24 @@ function ProgresoPanel({ user }) {
 // ═══════════════════════════════════════════════════════════════
 function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
   const [editando, setEditando] = useState(null);
-  const [form, setForm] = useState({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[] });
-  const [retoF, setRetoF] = useState({ title:"", desc:"", stars:1 });
+  const [form, setForm] = useState({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[], colaboradores:[] });
+  const [retoF, setRetoF] = useState({ title:"", desc:"", stars:1, duracion:"", tipo_duracion:"horas" });
   const [saving, setSaving] = useState(false); const [saved, setSaved] = useState(false); const [deleting, setDeleting] = useState(null);
-  // Admin: filtro por docente (por defecto mis propias misiones)
   const [filtroDocente, setFiltroDocente] = useState("yo");
+  const [docentesColabs, setDocentesColabs] = useState([]);
+  useEffect(()=>{ fetch("/api/usuarios").then(r=>r.json()).then(d=>setDocentesColabs(d.docentes||[])).catch(()=>{}); },[]);
 
-  const iniciarNueva = () => { setForm({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[] }); setEditando("nueva"); };
-  const iniciarEditar = (m) => { setForm({ id:m.id, title:m.title, icon:m.icon, color:m.color, description:m.description, retos:m.retos.map(r=>({...r})), grados:m.grados||[] }); setEditando(m.id); };
-  const agregarReto = () => { if(!retoF.title) return; setForm(p=>({...p,retos:[...p.retos,{id:p.retos.length+1,...retoF}]})); setRetoF({title:"",desc:"",stars:1}); };
-  const quitarReto = (idx) => setForm(p=>({...p,retos:p.retos.filter((_,i)=>i!==idx).map((r,i)=>({...r,id:i+1}))}));
+  const iniciarNueva = () => { setForm({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[], colaboradores:[] }); setEditando("nueva"); };
+  const iniciarEditar = (m) => { setForm({ id:m.id, title:m.title, icon:m.icon, color:m.color, description:m.description, retos:m.retos.map(r=>({...r})), grados:m.grados||[], colaboradores:m.colaboradores||[] }); setEditando(m.id); };
+  const agregarReto = () => { if(!retoF.title) return; setForm(p=>({...p,retos:[...p.retos,{id:p.retos.length+1,...retoF}]})); setRetoF({title:"",desc:"",stars:1,duracion:"",tipo_duracion:"horas"}); };
+  const quitarReto = (idx) => setForm(p=>({...p,retos:p.retos.filter((_,i)=>i!==idx).map((r,i=>({...r,id:i+1})))}));
+  const toggleColab = (id) => setForm(p=>({...p,colaboradores:p.colaboradores.includes(String(id))?p.colaboradores.filter(x=>x!==String(id)):[...p.colaboradores,String(id)]}));
 
   const guardar = async () => {
     if(!form.title||form.retos.length===0) return;
     setSaving(true);
-    if(editando==="nueva"){ const n=await createMision(user.id,user.name,{title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos,grados:form.grados}); if(n) setMisiones(prev=>[...prev,n]); }
-    else { const a=await updateMision(user.id,{id:form.id,title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos,grados:form.grados}); if(a) setMisiones(prev=>prev.map(m=>m.id===form.id?a:m)); }
+    if(editando==="nueva"){ const n=await createMision(user.id,user.name,{title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos,grados:form.grados,colaboradores:form.colaboradores||[]}); if(n) setMisiones(prev=>[...prev,n]); }
+    else { const a=await updateMision(user.id,{id:form.id,title:form.title,icon:form.icon,color:form.color,description:form.description,retos:form.retos,grados:form.grados,colaboradores:form.colaboradores||[]}); if(a) setMisiones(prev=>prev.map(m=>m.id===form.id?a:m)); }
     setSaving(false); setSaved(true); setTimeout(()=>{setSaved(false);setEditando(null);},1500);
   };
   const eliminar = async (id) => {
@@ -881,10 +883,14 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
             <div style={{ fontSize:14, fontWeight:700, color:m.color }}>{m.title}</div>
             <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{m.description}</div>
             <div style={{ fontSize:10, color:C.muted, marginTop:3 }}>
-              {m.retos?.length||0} retos
-              {user.role==="admin" && filtroDocente!=="yo"
+              {m.retos?.length||0} reto{m.retos?.length!==1?"s":""}
+              {m.es_colaborador && <span style={{ marginLeft:6, padding:"1px 6px", borderRadius:5, background:`${C.accent2}22`, color:C.accent2, fontWeight:700 }}>🤝 Colaborador</span>}
+              {user.role==="admin" && filtroDocente!=="yo" && !m.es_colaborador
                 ? <span style={{ marginLeft:4, color:"#f97316", fontWeight:600 }}>· {m.docente_nombre||"—"}</span>
                 : ""}
+              {(m.colaboradores||[]).length > 0 && !m.es_colaborador && (
+                <span style={{ marginLeft:6, color:C.accent2 }}>· 🤝 {(m.colaboradores||[]).length} colaborador(es)</span>
+              )}
               {(m.grados||[]).length>0
                 ? <span style={{ marginLeft:6, color:m.color||C.accent, fontWeight:700 }}>
                     · Grado(s): {(m.grados||[]).sort((a,b)=>Number(a)-Number(b)).join(", ")}
@@ -894,8 +900,9 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
             </div>
           </div>
           <div style={{ display:"flex", gap:6, flexShrink:0 }}>
-            <button onClick={()=>iniciarEditar(m)} style={{ padding:"6px 12px", background:`${C.accent}22`, border:`1px solid ${C.accent}44`, borderRadius:8, color:C.accent, fontSize:11, cursor:"pointer" }}>✏️</button>
-            <button onClick={()=>eliminar(m.id)} disabled={deleting===m.id} style={{ padding:"6px 12px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:11, cursor:"pointer" }}>{deleting===m.id?"...":"🗑️"}</button>
+            {!m.es_colaborador && <button onClick={()=>iniciarEditar(m)} style={{ padding:"6px 12px", background:`${C.accent}22`, border:`1px solid ${C.accent}44`, borderRadius:8, color:C.accent, fontSize:11, cursor:"pointer" }}>✏️</button>}
+            {!m.es_colaborador && <button onClick={()=>eliminar(m.id)} disabled={deleting===m.id} style={{ padding:"6px 12px", background:"#ff444422", border:"1px solid #ff444444", borderRadius:8, color:"#ff7777", fontSize:11, cursor:"pointer" }}>{deleting===m.id?"...":"🗑️"}</button>}
+            {m.es_colaborador && <span style={{ fontSize:10, color:C.muted, padding:"6px 10px" }}>Solo lectura</span>}
           </div>
         </div>
       ))}
@@ -952,22 +959,75 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
         {form.retos.map((r,i)=>(
           <div key={i} style={{ display:"flex", gap:8, padding:"9px 10px", background:C.surface, borderRadius:8, marginBottom:7, border:`1px solid ${C.border}`, alignItems:"flex-start" }}>
             <span style={{ fontFamily:"'Orbitron',monospace", color:form.color, fontWeight:900, fontSize:12, width:18 }}>{r.id}</span>
-            <div style={{ flex:1 }}><div style={{ fontSize:12, fontWeight:600 }}>{r.title} {"⭐".repeat(r.stars)}</div><div style={{ fontSize:11, color:C.muted }}>{r.desc}</div></div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:12, fontWeight:600 }}>{r.title} {"⭐".repeat(r.stars)}</div>
+              <div style={{ fontSize:11, color:C.muted }}>{r.desc}</div>
+              {r.duracion && <div style={{ fontSize:10, color:"#06b6d4", marginTop:3 }}>⏱️ {r.duracion} {r.tipo_duracion==="dias"?"día(s)":"hora(s)"}</div>}
+            </div>
             <button onClick={()=>quitarReto(i)} style={{ background:"none",border:"none",color:"#ff7777",cursor:"pointer",fontSize:15 }}>✕</button>
           </div>
         ))}
         <div style={{ background:`${C.accent}08`, border:`1px dashed ${C.accent}44`, borderRadius:10, padding:12, marginTop:8 }}>
           <div style={{ fontSize:12, color:C.accent, fontWeight:600, marginBottom:10 }}>+ Agregar reto</div>
           <div style={grid2}>
-            <div><div style={lbl}>Título</div><input style={inp} value={retoF.title} onChange={e=>setRetoF(p=>({...p,title:e.target.value}))} /></div>
+            <div><div style={lbl}>Título del reto</div><input style={inp} value={retoF.title} onChange={e=>setRetoF(p=>({...p,title:e.target.value}))} /></div>
             <div><div style={lbl}>Dificultad</div><select style={inp} value={retoF.stars} onChange={e=>setRetoF(p=>({...p,stars:Number(e.target.value)}))}>
               <option value={1}>⭐ Básico</option><option value={2}>⭐⭐ Intermedio</option><option value={3}>⭐⭐⭐ Avanzado</option>
             </select></div>
           </div>
-          <div style={{ marginTop:8 }}><div style={lbl}>Descripción</div><textarea style={{ ...inp, minHeight:56, resize:"vertical" }} value={retoF.desc} onChange={e=>setRetoF(p=>({...p,desc:e.target.value}))} /></div>
-          <button onClick={agregarReto} disabled={!retoF.title} style={{ marginTop:8, padding:"7px 14px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:12, cursor:"pointer" }}>Agregar reto</button>
+          <div style={{ marginTop:8 }}><div style={lbl}>Descripción del reto</div><textarea style={{ ...inp, minHeight:56, resize:"vertical" }} value={retoF.desc} onChange={e=>setRetoF(p=>({...p,desc:e.target.value}))} /></div>
+          {/* Duración del reto */}
+          <div style={{ display:"flex", gap:8, marginTop:10, alignItems:"flex-end" }}>
+            <div style={{ flex:1 }}>
+              <div style={lbl}>⏱️ Tiempo para resolver (opcional)</div>
+              <input type="number" min="1" style={inp} placeholder="Ej: 2" value={retoF.duracion} onChange={e=>setRetoF(p=>({...p,duracion:e.target.value}))} />
+            </div>
+            <div style={{ width:130 }}>
+              <div style={lbl}>Unidad</div>
+              <select style={inp} value={retoF.tipo_duracion} onChange={e=>setRetoF(p=>({...p,tipo_duracion:e.target.value}))}>
+                <option value="horas">Horas</option>
+                <option value="dias">Días</option>
+              </select>
+            </div>
+          </div>
+          <button onClick={agregarReto} disabled={!retoF.title} style={{ marginTop:10, padding:"7px 14px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:12, cursor:"pointer" }}>Agregar reto ✚</button>
         </div>
       </Card>
+
+      {/* Colaboradores docentes */}
+      {(user.role==="admin"||user.role==="teacher") && docentesColabs.filter(d=>String(d.id)!==String(user.id)).length > 0 && (
+        <Card title="🤝 Docentes Colaboradores (misión compartida)">
+          <div style={{ fontSize:11, color:C.muted, marginBottom:12, lineHeight:1.7 }}>
+            Agrega colegas que podrán ver los informes y equipos de esta misión.<br/>
+            <span style={{ color:C.accent3 }}>Los colaboradores NO pueden editarla, solo consultarla.</span>
+          </div>
+          {docentesColabs.filter(d=>String(d.id)!==String(user.id)).map(d=>{
+            const sel = (form.colaboradores||[]).includes(String(d.id));
+            return (
+              <div key={d.id} onClick={()=>toggleColab(d.id)}
+                style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px",
+                  background:sel?`${C.accent2}15`:C.surface, borderRadius:10, marginBottom:7,
+                  border:`1px solid ${sel?C.accent2:C.border}`, cursor:"pointer" }}>
+                <div style={{ width:30,height:30,borderRadius:"50%",background:`${C.accent2}22`,
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>
+                  {sel ? "✓" : "📚"}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:12, fontWeight:sel?700:400 }}>{d.nombres} {d.apellidos}</div>
+                  <div style={{ fontSize:10, color:C.muted }}>{d.asignatura||"Sin asignatura"} · {d.email}</div>
+                </div>
+                {sel && <span style={{ fontSize:10, color:C.accent2, fontWeight:700 }}>✓ Colaborador</span>}
+              </div>
+            );
+          })}
+          {(form.colaboradores||[]).length > 0 && (
+            <div style={{ marginTop:8, padding:"8px 12px", background:`${C.accent2}10`, borderRadius:8, fontSize:11, color:C.accent2 }}>
+              🤝 {(form.colaboradores||[]).length} docente(s) colaborador(es) agregado(s)
+            </div>
+          )}
+        </Card>
+      )}
+
       <div style={{ display:"flex", gap:10 }}>
         <Btn onClick={guardar} disabled={!form.title||form.retos.length===0||saving}>{saved?"✅ Guardado":saving?"Guardando...":editando==="nueva"?"Crear Misión 🚀":"Guardar ✔️"}</Btn>
         <button onClick={()=>setEditando(null)} style={{ padding:"11px 18px", background:"transparent", border:`1px solid ${C.border}`, borderRadius:10, color:C.muted, fontSize:13, cursor:"pointer" }}>Cancelar</button>
@@ -1048,6 +1108,9 @@ function AdminUsuarios() {
   const [apiError, setApiError] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [buscar, setBuscar] = useState("");
+  // Filtros grado/grupo para estudiantes
+  const [filtroGradoU, setFiltroGradoU] = useState("todos");
+  const [filtroGrupoU, setFiltroGrupoU] = useState("todos");
 
   // ── Formulario crear docente ──
   const [formDoc, setFormDoc] = useState({ nombres:"", apellidos:"", email:"", asignatura:"", password:"" });
@@ -1128,9 +1191,21 @@ function AdminUsuarios() {
     setArr(prev => prev.includes(val) ? prev.filter(x=>x!==val) : [...prev, val]);
 
   const lista    = tab==="docentes" ? (data.docentes||[]) : (data.estudiantes||[]);
+  // Grados y grupos disponibles para filtros (solo estudiantes)
+  const gradosDisponibles = [...new Set((data.estudiantes||[]).map(e=>e.grado).filter(Boolean))].sort((a,b)=>Number(a)-Number(b));
+  const gruposDisponibles = filtroGradoU==="todos"
+    ? [...new Set((data.estudiantes||[]).map(e=>e.grupo).filter(Boolean))].sort()
+    : [...new Set((data.estudiantes||[]).filter(e=>e.grado===filtroGradoU).map(e=>e.grupo).filter(Boolean))].sort();
+
   const filtrada = lista.filter(u => {
     const n=`${u.nombres||""} ${u.apellidos||""}`.toLowerCase();
-    return n.includes(buscar.toLowerCase())||(u.email||"").toLowerCase().includes(buscar.toLowerCase())||(u.asignatura||"").toLowerCase().includes(buscar.toLowerCase())||(u.grado||"").includes(buscar);
+    const textMatch = n.includes(buscar.toLowerCase())||(u.email||"").toLowerCase().includes(buscar.toLowerCase())||(u.asignatura||"").toLowerCase().includes(buscar.toLowerCase())||(u.grado||"").includes(buscar);
+    if (tab==="estudiantes") {
+      const gradoMatch = filtroGradoU==="todos" || u.grado===filtroGradoU;
+      const grupoMatch = filtroGrupoU==="todos" || u.grupo===filtroGrupoU;
+      return textMatch && gradoMatch && grupoMatch;
+    }
+    return textMatch;
   });
 
   const chipBtn = (val, arr, setArr, color=C.accent2) => (
@@ -1158,6 +1233,43 @@ function AdminUsuarios() {
         <div style={{ marginBottom:12 }}>
           <input style={{ ...inp, maxWidth:320 }} placeholder="Buscar..." value={buscar} onChange={e=>setBuscar(e.target.value)} />
         </div>
+
+        {/* Filtros grado / grupo (solo en pestaña estudiantes) */}
+        {tab==="estudiantes" && gradosDisponibles.length > 0 && (
+          <div style={{ background:"#0d1a2e", border:"1px solid #1a3050", borderRadius:14, padding:"14px 16px", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#4a6080", textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>📚 Grado</div>
+            <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginBottom: gruposDisponibles.length > 0 ? 14 : 0 }}>
+              {["todos", ...gradosDisponibles].map(g => (
+                <button key={g} onClick={() => { setFiltroGradoU(g); setFiltroGrupoU("todos"); }}
+                  style={{ padding:"7px 16px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
+                    fontWeight:700, fontSize:13,
+                    border:`2px solid ${filtroGradoU===g ? C.accent : "#1a3050"}`,
+                    background: filtroGradoU===g ? C.accent+"22" : "transparent",
+                    color: filtroGradoU===g ? C.accent : "#4a6080" }}>
+                  {g==="todos" ? "Todos" : g+"°"}
+                </button>
+              ))}
+            </div>
+            {gruposDisponibles.length > 0 && (
+              <>
+                <div style={{ fontSize:11, fontWeight:700, color:"#4a6080", textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>👥 Grupo</div>
+                <div style={{ display:"flex", gap:7, flexWrap:"wrap" }}>
+                  {["todos", ...gruposDisponibles].map(g => (
+                    <button key={g} onClick={() => setFiltroGrupoU(g)}
+                      style={{ padding:"7px 16px", borderRadius:10, cursor:"pointer", fontFamily:"inherit",
+                        fontWeight:700, fontSize:13,
+                        border:`2px solid ${filtroGrupoU===g ? C.accent2 : "#1a3050"}`,
+                        background: filtroGrupoU===g ? C.accent2+"22" : "transparent",
+                        color: filtroGrupoU===g ? C.accent2 : "#4a6080" }}>
+                      {g==="todos" ? "Todos" : "Grupo "+g}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {loading&&<div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando...</div>}
         {apiError&&<div style={{ background:"#ff444422", border:"1px solid #ff444444", color:"#ff7777", padding:"10px 14px", borderRadius:8, fontSize:13, marginBottom:12 }}>⚠️ {apiError}</div>}
         {!loading&&(
@@ -1557,16 +1669,26 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
 
           {!loadingC && filtrados.map(c => {
             const sel = seleccionados.find(x => x.id === c.id);
+            const enEquipo = c.equipo_activo && !sel; // está en otro equipo y no lo hemos seleccionado
             return (
-              <div key={c.id} onClick={() => toggle(c)} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background:sel?`${C.accent2}20`:C.surface, borderRadius:10, marginBottom:6, border:`1px solid ${sel?C.accent2:C.border}`, cursor:"pointer", transition:"all .15s" }}>
-                <div style={{ width:28,height:28,borderRadius:"50%",background:sel?C.accent2:`${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0,transition:"background .15s" }}>
-                  {sel ? "✓" : "🎓"}
+              <div key={c.id} onClick={() => !enEquipo && toggle(c)}
+                style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                  background:enEquipo?"#f9731608":sel?`${C.accent2}20`:C.surface,
+                  borderRadius:10, marginBottom:6,
+                  border:`1px solid ${enEquipo?"#f9731644":sel?C.accent2:C.border}`,
+                  cursor:enEquipo?"not-allowed":"pointer", opacity:enEquipo?0.7:1, transition:"all .15s" }}>
+                <div style={{ width:28,height:28,borderRadius:"50%",
+                  background:enEquipo?"#f9731622":sel?C.accent2:`${C.border}`,
+                  display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0 }}>
+                  {enEquipo ? "🔒" : sel ? "✓" : "🎓"}
                 </div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:13, fontWeight:sel?700:400 }}>{c.nombres} {c.apellidos}</div>
                   <div style={{ fontSize:10, color:C.muted }}>Grado {c.grado} · Grupo {c.grupo}</div>
+                  {enEquipo && <div style={{ fontSize:10, color:"#f97316", marginTop:2 }}>🔒 Ya está en el equipo "{c.equipo_activo}"</div>}
                 </div>
                 {sel && <span style={{ fontSize:10, color:C.accent2, fontWeight:700 }}>✓ Seleccionado</span>}
+                {enEquipo && <span style={{ fontSize:9, color:"#f97316", fontWeight:600, flexShrink:0 }}>No disponible</span>}
               </div>
             );
           })}
@@ -1926,7 +2048,10 @@ function MissionMap({ misiones, onSelect }) {
       {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map(r=>(
         <div key={r.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:C.surface,borderRadius:8,borderLeft:`3px solid ${m.color}66` }}>
           <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:12,color:m.color,width:18 }}>{r.id}</div>
-          <div><div style={{ fontSize:12,fontWeight:700,marginBottom:3 }}>{r.title} {"⭐".repeat(r.stars)}</div><div style={{ fontSize:11,color:C.muted }}>{r.desc}</div></div>
+          <div>
+            <div style={{ fontSize:12,fontWeight:700,marginBottom:3 }}>{r.title} {"⭐".repeat(r.stars)}{r.duracion && <span style={{ marginLeft:8, fontSize:10, color:"#06b6d4", fontWeight:400 }}>⏱️ {r.duracion} {r.tipo_duracion==="dias"?"día(s)":"hora(s)"}</span>}</div>
+            <div style={{ fontSize:11,color:C.muted }}>{r.desc}</div>
+          </div>
         </div>
       ))}</div>}
     </div>
