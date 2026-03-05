@@ -42,36 +42,74 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ success: true });
     }
 
-    // ── Disolver TODOS los equipos ────────────────────────────
-    // Pone equipo_nombre = null en nexus_chats (conserva historial de chat)
-    // Si docente_id se pasa, solo disuelve equipos de sus misiones
+    // ── Eliminar TODOS los equipos (chats + progreso) ──────────
+    // Elimina físicamente los chats con equipo_nombre != null
+    // y el progreso asociado. Reset total para empezar de cero.
     if (accion === "limpiar_equipos") {
       const { docente_id } = req.body;
-      let q = supabase.from("nexus_chats").update({ equipo_nombre: null }).not("equipo_nombre", "is", null);
+      let misionIds = [];
+      let estIds = [];
 
       if (docente_id) {
-        // Solo los equipos de las misiones de este docente
+        // Misiones propias del docente
         const { data: misiones } = await supabase
           .from("nexus_misiones").select("id").eq("docente_id", String(docente_id));
-        const misionIds = (misiones || []).map(m => m.id);
+        misionIds = (misiones || []).map(m => m.id);
+
+        // IDs de estudiantes del docente
         if (misionIds.length > 0) {
-          q = supabase.from("nexus_chats").update({ equipo_nombre: null })
-            .not("equipo_nombre", "is", null)
-            .in("mision_id", misionIds);
-        }
-        // También modo libre (mision_id null) de sus estudiantes
-        const { data: ests } = await supabase
-          .from("nexus_progreso").select("estudiante_id").in("mision_id", misionIds.length > 0 ? misionIds : [0]).limit(3000);
-        const estIds = [...new Set((ests||[]).map(e=>String(e.estudiante_id)))];
-        if (estIds.length > 0) {
-          await supabase.from("nexus_chats").update({ equipo_nombre: null })
-            .not("equipo_nombre", "is", null).is("mision_id", null).in("estudiante_id", estIds);
+          const { data: ests } = await supabase
+            .from("nexus_progreso").select("estudiante_id").in("mision_id", misionIds).limit(3000);
+          estIds = [...new Set((ests||[]).map(e=>String(e.estudiante_id)))];
         }
       }
 
-      const { error, count } = await q;
-      if (error) return res.status(200).json({ error: error.message });
-      return res.status(200).json({ success: true, disueltos: count || 0 });
+      // 1. Obtener nombres de equipos a eliminar
+      let qNombres = supabase.from("nexus_chats")
+        .select("equipo_nombre, estudiante_id")
+        .not("equipo_nombre", "is", null)
+        .limit(5000);
+      if (misionIds.length > 0) qNombres = qNombres.in("mision_id", misionIds);
+      const { data: chatConEquipo } = await qNombres;
+
+      // También chats modo libre de los estudiantes del docente
+      if (estIds.length > 0) {
+        const { data: chatLibre } = await supabase.from("nexus_chats")
+          .select("equipo_nombre, estudiante_id")
+          .not("equipo_nombre", "is", null).is("mision_id", null)
+          .in("estudiante_id", estIds).limit(2000);
+        (chatLibre || []).forEach(r => chatConEquipo && chatConEquipo.push(r));
+      }
+
+      const estudiantesAfectados = [...new Set((chatConEquipo||[]).map(r=>String(r.estudiante_id)))];
+
+      // 2. Eliminar TODOS los chats de esos estudiantes (reset completo)
+      let errores = [];
+      if (docente_id && misionIds.length > 0) {
+        const { error: e1 } = await supabase.from("nexus_chats").delete().in("mision_id", misionIds);
+        if (e1) errores.push(e1.message);
+        // Modo libre
+        if (estIds.length > 0) {
+          const { error: e2 } = await supabase.from("nexus_chats").delete()
+            .is("mision_id", null).in("estudiante_id", estIds);
+          if (e2) errores.push(e2.message);
+        }
+      } else if (!docente_id) {
+        // Admin: borrar todos los chats
+        const { error: e3 } = await supabase.from("nexus_chats").delete().neq("id", 0);
+        if (e3) errores.push(e3.message);
+      }
+
+      // 3. Eliminar progreso de los estudiantes afectados
+      if (estudiantesAfectados.length > 0) {
+        let qDelProg = supabase.from("nexus_progreso").delete().in("estudiante_id", estudiantesAfectados);
+        if (misionIds.length > 0) qDelProg = qDelProg.in("mision_id", misionIds);
+        const { error: e4 } = await qDelProg;
+        if (e4) errores.push(e4.message);
+      }
+
+      if (errores.length > 0) return res.status(200).json({ error: errores.join(" | ") });
+      return res.status(200).json({ success: true, estudiantesAfectados: estudiantesAfectados.length });
     }
 
     // ── Crear docente nuevo ──────────────────────────────────

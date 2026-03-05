@@ -1,5 +1,6 @@
-// api/companeros.js — Compañeros del mismo grado/grupo
-// v2: Marca si cada compañero ya está en un equipo activo (para bloquear selección)
+// api/companeros.js — v3
+// GET ?grado=X&grupo=Y&exclude_id=Z  → lista compañeros + flag equipo_activo
+// GET ?restaurar=1&estudiante_id=X   → equipo activo del estudiante (restaurar sesión)
 const { createClient } = require("@supabase/supabase-js");
 
 module.exports = async function handler(req, res) {
@@ -14,13 +15,69 @@ module.exports = async function handler(req, res) {
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
+  // ── RESTAURAR EQUIPO AL INICIAR SESIÓN ───────────────────────
+  // GET /api/companeros?restaurar=1&estudiante_id=X
+  if (req.query.restaurar === "1") {
+    const { estudiante_id } = req.query;
+    if (!estudiante_id) return res.status(200).json({ equipo: null });
+
+    try {
+      // Buscar el equipo más reciente de este estudiante (últimos 90 días)
+      const hace90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: rows } = await supabase
+        .from("nexus_chats")
+        .select("equipo_nombre, nombre_estudiante, created_at")
+        .eq("estudiante_id", String(estudiante_id))
+        .not("equipo_nombre", "is", null)
+        .gte("created_at", hace90)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (!rows || rows.length === 0) return res.status(200).json({ equipo: null });
+
+      const nombreEquipo = rows[0].equipo_nombre;
+
+      // Buscar todos los integrantes del equipo (otros que no son el líder)
+      const { data: integrantesRows } = await supabase
+        .from("nexus_chats")
+        .select("estudiante_id, nombre_estudiante")
+        .eq("equipo_nombre", nombreEquipo)
+        .neq("estudiante_id", String(estudiante_id))
+        .order("created_at", { ascending: true })
+        .limit(100);
+
+      // Deduplicar integrantes
+      const seen = new Set();
+      const integrantes = [];
+      (integrantesRows || []).forEach(r => {
+        if (!seen.has(String(r.estudiante_id))) {
+          seen.add(String(r.estudiante_id));
+          // Separar nombres/apellidos: los primeros dos tokens = nombres, resto = apellidos
+          const partes = (r.nombre_estudiante || "").split(" ");
+          integrantes.push({
+            id: r.estudiante_id,
+            nombres: partes.slice(0, Math.ceil(partes.length / 2)).join(" "),
+            apellidos: partes.slice(Math.ceil(partes.length / 2)).join(" "),
+          });
+        }
+      });
+
+      return res.status(200).json({
+        equipo: { nombre: nombreEquipo, integrantes }
+      });
+    } catch (err) {
+      return res.status(200).json({ equipo: null, error: err.message });
+    }
+  }
+
+  // ── LISTA DE COMPAÑEROS (flujo normal) ───────────────────────
+  // GET /api/companeros?grado=X&grupo=Y&exclude_id=Z
   const { grado, grupo, exclude_id } = req.query;
   if (!grado || !grupo) return res.status(200).json({ error: "Faltan grado y grupo", companeros: [] });
 
   try {
-    // 1. Obtener compañeros del mismo grado y grupo
     const { data, error } = await supabase
-      .from("estudiantes")
+      .from("nexus_estudiantes")
       .select("id, nombres, apellidos, grado, grupo")
       .eq("grado", grado)
       .eq("grupo", grupo)
@@ -31,31 +88,27 @@ module.exports = async function handler(req, res) {
     if (error) return res.status(200).json({ error: error.message, companeros: [] });
 
     let lista = (data || []).filter(e => String(e.id) !== String(exclude_id));
-
     if (lista.length === 0) return res.status(200).json({ companeros: [] });
 
-    // 2. Verificar cuáles ya están en un equipo activo
-    // Un estudiante "en equipo" = tiene un chat con equipo_nombre != null en los últimos 60 días
+    // Detectar si cada compañero ya está en un equipo activo (últimos 60 días)
     const listaIds = lista.map(e => String(e.id));
-    const hace60Dias = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const hace60 = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: equipoRows } = await supabase
       .from("nexus_chats")
       .select("estudiante_id, equipo_nombre")
       .not("equipo_nombre", "is", null)
       .in("estudiante_id", listaIds)
-      .gte("created_at", hace60Dias)
+      .gte("created_at", hace60)
       .order("created_at", { ascending: false })
       .limit(200);
 
-    // Construir mapa: estudiante_id → nombre_equipo (el más reciente)
     const equipoActivoMap = {};
     (equipoRows || []).forEach(row => {
       const id = String(row.estudiante_id);
       if (!equipoActivoMap[id]) equipoActivoMap[id] = row.equipo_nombre;
     });
 
-    // 3. Enriquecer la lista con el flag `equipo_activo`
     lista = lista.map(e => ({
       ...e,
       equipo_activo: equipoActivoMap[String(e.id)] || null,
