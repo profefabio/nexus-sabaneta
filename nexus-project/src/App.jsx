@@ -1848,11 +1848,14 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
       .then(r => r.json())
       .then(d => {
         if (d.equipo?.nombre) {
-          // Determinar si el líder es otro (no yo mismo)
-          const esLider = equipo?.nombre === d.equipo.nombre;
-          if (!esLider) {
+          // Soy líder si mi ID coincide con el liderId del equipo
+          const soyLider = d.equipo.liderId && String(d.equipo.liderId) === String(user.id);
+          if (soyLider) {
+            // Soy líder: restaurar el equipo en el estado global
+            if (!equipo) setEquipo(d.equipo);
+          } else {
+            // Soy integrante: bloquear el formulario
             setYaEnEquipo(d.equipo);
-            // Restaurar el equipo en el contexto global también
             if (!equipo) setEquipo(d.equipo);
           }
         }
@@ -1915,8 +1918,8 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
     return full.includes(buscar.toLowerCase());
   });
 
-  // Si el estudiante ya fue asignado a un equipo por otro líder — mostrar panel de bloqueo
-  if (yaEnEquipo && !equipo?.nombre) {
+  // Si el estudiante fue asignado a un equipo como integrante (no líder) — mostrar panel de bloqueo
+  if (yaEnEquipo) {
     return (
       <Page title="👥 Mi Equipo" desc="Trabaja en equipo. El dispositivo lo comparten pero el conocimiento es de todos.">
         <div style={{ background:`${C.accent3}12`, border:`2px solid ${C.accent3}44`, borderRadius:16, padding:"28px 24px", textAlign:"center", marginBottom:20 }}>
