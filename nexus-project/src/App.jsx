@@ -103,7 +103,9 @@ const loadChatHistory = async (estudianteId, misionId, retoId) => {
       params.append("reto_id", retoId === null ? "__libre__" : String(retoId));
     const res = await fetch("/api/savechat?" + params);
     const data = await res.json();
-    return (data.msgs || []).map(m => ({ role: m.role, content: m.content, retoId: m.reto_id }));
+    return (data.msgs || [])
+      .filter(m => m.role !== "system" && !String(m.content||"").startsWith("__equipo_registrado__"))
+      .map(m => ({ role: m.role, content: m.content, retoId: m.reto_id }));
   } catch(_) { return []; }
 };
 
@@ -1830,17 +1832,36 @@ function StudentView({ user, onLogout }) {
 // ═══════════════════════════════════════════════════════════════
 function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
   const [nombre, setNombre]           = useState(equipo?.nombre || "");
-  const [seleccionados, setSeleccionados] = useState(equipo?.integrantes || []); // [{id,nombres,apellidos}]
+  const [seleccionados, setSeleccionados] = useState(equipo?.integrantes || []);
   const [companeros, setCompaneros]   = useState([]);
   const [loadingC, setLoadingC]       = useState(true);
   const [buscar, setBuscar]           = useState("");
   const [saved, setSaved]             = useState(false);
+  // yaEnEquipo: { nombre, liderId } — si alguien nos agregó a su equipo
+  const [yaEnEquipo, setYaEnEquipo]   = useState(null);
 
   useEffect(() => {
     if (!user.grade || !user.group) { setLoadingC(false); return; }
+
+    // Verificar si el estudiante ya fue asignado a un equipo por otro líder
+    fetch(`/api/companeros?restaurar=1&estudiante_id=${user.id}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.equipo?.nombre) {
+          // Determinar si el líder es otro (no yo mismo)
+          const esLider = equipo?.nombre === d.equipo.nombre;
+          if (!esLider) {
+            setYaEnEquipo(d.equipo);
+            // Restaurar el equipo en el contexto global también
+            if (!equipo) setEquipo(d.equipo);
+          }
+        }
+      })
+      .catch(() => {});
+
     getCompaneros(user.grade, user.group, user.id)
       .then(c => { setCompaneros(c); setLoadingC(false); });
-  }, [user.grade, user.group, user.id]);
+  }, [user.grade, user.group, user.id]); // eslint-disable-line
 
   const toggle = (c) => {
     setSeleccionados(prev =>
@@ -1850,10 +1871,36 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
     );
   };
 
-  const guardar = () => {
+  const guardar = async () => {
     if (!nombre.trim()) return;
-    setEquipo({ nombre: nombre.trim(), integrantes: seleccionados });
+    const nombreEquipo = nombre.trim();
+    setEquipo({ nombre: nombreEquipo, integrantes: seleccionados });
     setSaved(true);
+
+    // Registrar el equipo en nexus_chats para que los integrantes queden bloqueados
+    // inmediatamente (sin necesidad de que empiecen a chatear)
+    try {
+      const todosIntegrantes = [
+        { id: user.id, nombre: user.name },
+        ...seleccionados.map(c => ({ id: c.id, nombre: `${c.nombres} ${c.apellidos}` }))
+      ];
+      await Promise.all(todosIntegrantes.map(m =>
+        fetch("/api/savechat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            estudiante_id: m.id,
+            nombre_estudiante: m.nombre,
+            mision_id: null,
+            mision_title: null,
+            role: "system",
+            content: `__equipo_registrado__:${nombreEquipo}:lider:${user.id}`,
+            xp_at_time: 0,
+            equipo_nombre: nombreEquipo,
+          })
+        })
+      ));
+    } catch(_) {}
+
     setTimeout(() => { setSaved(false); onIrChat(); }, 1200);
   };
 
@@ -1867,6 +1914,38 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat }) {
     const full = `${c.nombres} ${c.apellidos}`.toLowerCase();
     return full.includes(buscar.toLowerCase());
   });
+
+  // Si el estudiante ya fue asignado a un equipo por otro líder — mostrar panel de bloqueo
+  if (yaEnEquipo && !equipo?.nombre) {
+    return (
+      <Page title="👥 Mi Equipo" desc="Trabaja en equipo. El dispositivo lo comparten pero el conocimiento es de todos.">
+        <div style={{ background:`${C.accent3}12`, border:`2px solid ${C.accent3}44`, borderRadius:16, padding:"28px 24px", textAlign:"center", marginBottom:20 }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🔒</div>
+          <div style={{ fontFamily:"'Orbitron',monospace", fontSize:14, color:C.accent3, fontWeight:900, marginBottom:10 }}>
+            Ya perteneces a un equipo
+          </div>
+          <div style={{ fontSize:13, color:C.text, marginBottom:6 }}>
+            Un líder te asignó al equipo:
+          </div>
+          <div style={{ fontSize:22, fontWeight:900, color:C.accent2, fontFamily:"'Orbitron',monospace", marginBottom:16 }}>
+            {yaEnEquipo.nombre}
+          </div>
+          {yaEnEquipo.integrantes?.length > 0 && (
+            <div style={{ fontSize:12, color:C.muted, marginBottom:20 }}>
+              Integrantes: {yaEnEquipo.integrantes.map(i => `${i.nombres} ${i.apellidos}`).join(", ")}
+            </div>
+          )}
+          <div style={{ fontSize:12, color:C.muted, marginBottom:20, background:`${C.accent2}10`, borderRadius:10, padding:"10px 14px", border:`1px solid ${C.accent2}22` }}>
+            💡 El líder comparte el dispositivo. Tú participas en voz alta — NEXUS incluye actividades para todos.
+          </div>
+          <button onClick={onIrChat}
+            style={{ padding:"12px 28px", background:`linear-gradient(135deg,${C.accent3},${C.accent})`, border:"none", borderRadius:12, color:"#0d1526", fontWeight:900, fontSize:13, cursor:"pointer" }}>
+            🚀 Ir al chat del equipo
+          </button>
+        </div>
+      </Page>
+    );
+  }
 
   return (
     <Page title="👥 Mi Equipo" desc="Trabaja en equipo. El dispositivo lo comparten pero el conocimiento es de todos.">
