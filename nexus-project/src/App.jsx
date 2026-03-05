@@ -969,8 +969,42 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
 
   const iniciarNueva = () => { setForm({ title:"", icon:"📻", color:"#f97316", description:"", retos:[], grados:[], colaboradores:[] }); setEditando("nueva"); };
   const iniciarEditar = (m) => { setForm({ id:m.id, title:m.title, icon:m.icon, color:m.color, description:m.description, retos:m.retos.map(r=>({...r})), grados:m.grados||[], colaboradores:m.colaboradores||[] }); setEditando(m.id); };
-  const agregarReto = () => { if(!retoF.title) return; setForm(p=>({...p,retos:[...p.retos,{id:p.retos.length+1,...retoF}]})); setRetoF({title:"",desc:"",stars:1,duracion:"",tipo_duracion:"horas"}); };
-  const quitarReto = (idx) => setForm(p=>({...p,retos:p.retos.filter((_,i)=>i!==idx).map((r,i=>({...r,id:i+1})))}));
+  // ── Estado de edición de reto ──────────────────────────────
+  const [retoEditIdx, setRetoEditIdx] = useState(null); // null = agregar, n = editar índice n
+
+  const agregarReto = () => {
+    if (!retoF.title) return;
+    if (retoEditIdx !== null) {
+      // MODO EDICIÓN: reemplazar reto existente
+      setForm(p => ({
+        ...p,
+        retos: p.retos.map((r, i) =>
+          i === retoEditIdx ? { ...r, ...retoF } : r
+        )
+      }));
+      setRetoEditIdx(null);
+    } else {
+      // MODO AGREGAR: añadir nuevo al final
+      setForm(p => ({ ...p, retos: [...p.retos, { id: p.retos.length + 1, ...retoF }] }));
+    }
+    setRetoF({ title: "", desc: "", stars: 1, duracion: "", tipo_duracion: "horas" });
+  };
+
+  const editarReto = (idx) => {
+    const r = form.retos[idx];
+    setRetoF({ title: r.title, desc: r.desc || "", stars: r.stars || 1, duracion: r.duracion || "", tipo_duracion: r.tipo_duracion || "horas" });
+    setRetoEditIdx(idx);
+  };
+
+  const cancelarEdicion = () => {
+    setRetoEditIdx(null);
+    setRetoF({ title: "", desc: "", stars: 1, duracion: "", tipo_duracion: "horas" });
+  };
+
+  const quitarReto = (idx) => {
+    if (retoEditIdx === idx) cancelarEdicion();
+    setForm(p => ({ ...p, retos: p.retos.filter((_, i) => i !== idx).map((r, i) => ({ ...r, id: i + 1 })) }));
+  };
   const toggleColab = (id) => setForm(p=>({...p,colaboradores:p.colaboradores.includes(String(id))?p.colaboradores.filter(x=>x!==String(id)):[...p.colaboradores,String(id)]}));
 
   const guardar = async () => {
@@ -1115,18 +1149,37 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
       </Card>
       <Card title="⭐ Retos">
         {form.retos.map((r,i)=>(
-          <div key={i} style={{ display:"flex", gap:8, padding:"9px 10px", background:C.surface, borderRadius:8, marginBottom:7, border:`1px solid ${C.border}`, alignItems:"flex-start" }}>
-            <span style={{ fontFamily:"'Orbitron',monospace", color:form.color, fontWeight:900, fontSize:12, width:18 }}>{r.id}</span>
+          <div key={i} style={{ display:"flex", gap:8, padding:"9px 10px",
+            background: retoEditIdx===i ? `${form.color}15` : C.surface,
+            borderRadius:8, marginBottom:7,
+            border:`1px solid ${retoEditIdx===i ? form.color+"66" : C.border}`,
+            alignItems:"flex-start" }}>
+            <span style={{ fontFamily:"'Orbitron',monospace", color:form.color, fontWeight:900, fontSize:12, width:18, paddingTop:2 }}>{r.id}</span>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:12, fontWeight:600 }}>{r.title} {"⭐".repeat(r.stars)}</div>
-              <div style={{ fontSize:11, color:C.muted }}>{r.desc}</div>
+              {r.desc && <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{r.desc}</div>}
               {r.duracion && <div style={{ fontSize:10, color:"#06b6d4", marginTop:3 }}>⏱️ {r.duracion} {r.tipo_duracion==="dias"?"día(s)":"hora(s)"}</div>}
             </div>
-            <button onClick={()=>quitarReto(i)} style={{ background:"none",border:"none",color:"#ff7777",cursor:"pointer",fontSize:15 }}>✕</button>
+            <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+              <button onClick={()=>retoEditIdx===i ? cancelarEdicion() : editarReto(i)}
+                title={retoEditIdx===i ? "Cancelar edición" : "Editar reto"}
+                style={{ background: retoEditIdx===i ? `${form.color}22`:"none",
+                  border: retoEditIdx===i ? `1px solid ${form.color}44`:"none",
+                  color: retoEditIdx===i ? form.color : C.accent,
+                  cursor:"pointer", fontSize:13, borderRadius:6, padding:"2px 6px" }}>
+                {retoEditIdx===i ? "✕" : "✏️"}
+              </button>
+              <button onClick={()=>quitarReto(i)} title="Eliminar reto"
+                style={{ background:"none",border:"none",color:"#ff7777",cursor:"pointer",fontSize:13 }}>🗑️</button>
+            </div>
           </div>
         ))}
-        <div style={{ background:`${C.accent}08`, border:`1px dashed ${C.accent}44`, borderRadius:10, padding:12, marginTop:8 }}>
-          <div style={{ fontSize:12, color:C.accent, fontWeight:600, marginBottom:10 }}>+ Agregar reto</div>
+        <div style={{ background: retoEditIdx!==null ? `${form.color}08`:`${C.accent}08`,
+          border:`1px dashed ${retoEditIdx!==null ? form.color+"44" : C.accent+"44"}`,
+          borderRadius:10, padding:12, marginTop:8 }}>
+          <div style={{ fontSize:12, color: retoEditIdx!==null ? form.color : C.accent, fontWeight:700, marginBottom:10 }}>
+            {retoEditIdx!==null ? `✏️ Editando Reto ${form.retos[retoEditIdx]?.id}` : "+ Agregar reto"}
+          </div>
           <div style={grid2}>
             <div><div style={lbl}>Título del reto</div><input style={inp} value={retoF.title} onChange={e=>setRetoF(p=>({...p,title:e.target.value}))} /></div>
             <div><div style={lbl}>Dificultad</div><select style={inp} value={retoF.stars} onChange={e=>setRetoF(p=>({...p,stars:Number(e.target.value)}))}>
@@ -1148,7 +1201,24 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
               </select>
             </div>
           </div>
-          <button onClick={agregarReto} disabled={!retoF.title} style={{ marginTop:10, padding:"7px 14px", background:`${C.accent3}22`, border:`1px solid ${C.accent3}44`, borderRadius:8, color:C.accent3, fontSize:12, cursor:"pointer" }}>Agregar reto ✚</button>
+          <div style={{ display:"flex", gap:8, marginTop:10 }}>
+            <button onClick={agregarReto} disabled={!retoF.title}
+              style={{ padding:"7px 16px",
+                background: retoEditIdx!==null ? `${form.color}22`:`${C.accent3}22`,
+                border:`1px solid ${retoEditIdx!==null ? form.color+"44" : C.accent3+"44"}`,
+                borderRadius:8, color: retoEditIdx!==null ? form.color : C.accent3,
+                fontSize:12, cursor:"pointer", fontWeight:700 }}>
+              {retoEditIdx!==null ? "💾 Guardar cambios" : "✚ Agregar reto"}
+            </button>
+            {retoEditIdx!==null && (
+              <button onClick={cancelarEdicion}
+                style={{ padding:"7px 14px", background:"transparent",
+                  border:`1px solid ${C.border}`, borderRadius:8,
+                  color:C.muted, fontSize:12, cursor:"pointer" }}>
+                Cancelar
+              </button>
+            )}
+          </div>
         </div>
       </Card>
 
