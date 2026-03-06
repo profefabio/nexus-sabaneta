@@ -61,9 +61,33 @@ async function guardarProgreso(supabase, payload) {
 
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // ── GET: obtener XP actual de un estudiante en una misión ──
+  if (req.method === "GET") {
+    const { estudiante_id, mision_id } = req.query;
+    if (!estudiante_id || !mision_id)
+      return res.status(200).json({ xp_total: 0, nota: 1.0 });
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+    try {
+      const { data } = await supabase
+        .from("nexus_progreso")
+        .select("xp_total, nota, nivel")
+        .eq("estudiante_id", String(estudiante_id))
+        .eq("mision_id", mision_id)
+        .maybeSingle();
+      return res.status(200).json({
+        xp_total: data?.xp_total || 0,
+        nota: data?.nota || 1.0,
+        nivel: data?.nivel || 1,
+      });
+    } catch (err) {
+      return res.status(200).json({ xp_total: 0, nota: 1.0, error: err.message });
+    }
+  }
+
   if (req.method !== "POST") return res.status(200).end();
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY)
