@@ -111,6 +111,25 @@ const loadChatHistory = async (estudianteId, misionId, retoId) => {
 
 // ─── Fórmula XP → Nota (escala progresiva original) ─────────────
 //   0  XP = 1.0 · 25 XP = 2.0 · 75 XP = 3.0 · 150 XP = 4.0 · 250 XP = 5.0
+// Convierte nota a XP aproximado (inversa de xpToNota)
+const notaToXp = (nota) => {
+  const bp = [
+    { xp:   0, nota: 1.0 }, { xp:  25, nota: 2.0 },
+    { xp:  75, nota: 3.0 }, { xp: 150, nota: 4.0 },
+    { xp: 250, nota: 5.0 },
+  ];
+  if (!nota || nota <= 1.0) return 0;
+  if (nota >= 5.0) return 250;
+  for (let i = 0; i < bp.length - 1; i++) {
+    const a = bp[i], b = bp[i + 1];
+    if (nota >= a.nota && nota <= b.nota) {
+      const t = (nota - a.nota) / (b.nota - a.nota);
+      return Math.round(a.xp + t * (b.xp - a.xp));
+    }
+  }
+  return 0;
+};
+
 const xpToNota = (xp) => {
   const bp = [{x:0,n:1.0},{x:25,n:2.0},{x:75,n:3.0},{x:150,n:4.0},{x:250,n:5.0}];
   if (!xp || xp <= 0) return 1.0;
@@ -2123,16 +2142,24 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   const retoCompleto = interactionCount >= MAX_INT;
 
-  // Reset al cambiar de MISIÓN (no de reto — el reto lo maneja el siguiente effect)
+  // Reset al cambiar de MISIÓN — carga XP acumulado desde la BD
   useEffect(() => {
     setInteractionCount(0);
-    setXp(0);
+    setXp(0); // temporal hasta cargar desde BD
     setMisionAnulada(false);
     setPasteCount(0);
     setShowPasteWarning(false);
     setHistorialPrevio([]);
     setShowHistPrevio(false);
     setMsgs([{ role:"assistant", content: welcomeMsg }]);
+
+    // Cargar XP real desde Supabase para esta misión
+    if (user?.id && misionId) {
+      fetch(`/api/saveprogress?estudiante_id=${user.id}&mision_id=${misionId}`)
+        .then(r => r.json())
+        .then(d => { if (d.xp_total > 0) setXp(d.xp_total); })
+        .catch(() => {});
+    }
   }, [misionId]); // eslint-disable-line
 
   // Reset + cargar historial al cambiar de RETO
@@ -2237,25 +2264,33 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       setShowPasteWarning(false);
       setMisionAnulada(true);
 
-      // Guardar nota 1.0 (XP = 0) para el estudiante
-      const saveNota1 = (id, nombre, grado, grupo) =>
+      // Calcular nota penalizada: si nota actual >= 1.5 → restar 0.5, si no → nota 1.0
+      const notaActual = xpToNota(xp);
+      const notaPenalizada = notaActual >= 1.5
+        ? Math.round((notaActual - 0.5) * 10) / 10
+        : 1.0;
+      const xpPenalizado = notaToXp(notaPenalizada);
+
+      // Actualizar XP en pantalla con la penalización
+      setXp(xpPenalizado);
+
+      const saveNotaPenalizada = (id, nombre, grado, grupo) =>
         fetch("/api/saveprogress", {
           method:"POST", headers:{"Content-Type":"application/json"},
           body:JSON.stringify({
             estudiante_id: id, nombre_estudiante: nombre,
             grado: grado||"", grupo: grupo||"",
-            xp_total: 0, nivel: 1, mision_id: misionId||null,
+            xp_total: xpPenalizado, nivel: Math.floor(xpPenalizado/50)+1,
+            mision_id: misionId||null,
           })
         }).catch(()=>{});
 
       if (user?.id) {
-        // Guardar para el líder/estudiante actual
-        saveNota1(user.id, user.name, user.grade, user.group);
-
-        // Si está en equipo, guardar nota 1 para TODOS los integrantes
+        saveNotaPenalizada(user.id, user.name, user.grade, user.group);
+        // Si está en equipo, aplicar la misma penalización a TODOS
         if (equipo?.integrantes?.length > 0) {
           equipo.integrantes.forEach(m => {
-            saveNota1(m.id, `${m.nombres||""} ${m.apellidos||""}`.trim(), m.grado, m.grupo);
+            saveNotaPenalizada(m.id, `${m.nombres||""} ${m.apellidos||""}`.trim(), m.grado, m.grupo);
           });
         }
       }
@@ -2471,7 +2506,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
               Se detectó un intento de <strong>copiar texto</strong> del chat o <strong>pegar</strong> respuestas externas.
             </div>
             <div style={{ fontSize:14, fontWeight:800, color:"#f97316", padding:"12px 16px", background:"#2a1500", borderRadius:12, marginBottom:18, border:"1px solid #f9731633" }}>
-              🚨 Próximo intento se ANULA la misión
+              🚨 Próximo intento → Misión ANULADA · Nota {xpToNota(xp) >= 1.5 ? `${(Math.round((xpToNota(xp)-0.5)*10)/10).toFixed(1)} (-0.5)` : "1.0"}
             </div>
             <div style={{ fontSize:11, color:"#92400e", marginBottom:20, lineHeight:1.6 }}>
               Las respuestas deben ser tuyas. Demuestra tu conocimiento. 💪
@@ -2499,9 +2534,9 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
             <div style={{ fontSize:13, color:"#fca5a5", lineHeight:1.9, marginBottom:10 }}>
               Se detectó un <strong>segundo intento de copiar o pegar</strong> texto. La misión ha sido anulada.
             </div>
-            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:52, fontWeight:900, color:"#ef4444", margin:"8px 0 4px", textShadow:"0 0 20px #ef4444" }}>1.0</div>
+            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:52, fontWeight:900, color:"#ef4444", margin:"8px 0 4px", textShadow:"0 0 20px #ef4444" }}>{xpToNota(xp).toFixed(1)}</div>
             <div style={{ fontSize:13, color:"#fca5a5", marginBottom:8, fontWeight:600 }}>
-              Nota definitiva por integridad académica
+              Nota penalizada por integridad académica
             </div>
             {equipo?.nombre && (
               <div style={{ fontSize:12, color:"#fca5a5", marginBottom:16, padding:"8px 12px", background:"#2a0000", borderRadius:10, border:"1px solid #3f0000" }}>
