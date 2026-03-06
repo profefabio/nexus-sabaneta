@@ -2223,28 +2223,53 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   };
 
   // ── Detección de copia/pegado ─────────────────────────────────
-  const handlePaste = (e) => {
+  // Función compartida: registra un intento de copia (copy o paste)
+  const registrarIntentoCopia = (e) => {
     if (compact) return;
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault(); // solo aplica para paste
+
     const newCount = pasteCount + 1;
     setPasteCount(newCount);
+
     if (newCount === 1) {
       setShowPasteWarning(true);
     } else {
       setShowPasteWarning(false);
       setMisionAnulada(true);
-      // Guardar nota 1.0 (XP = 0)
-      if (user?.id) {
+
+      // Guardar nota 1.0 (XP = 0) para el estudiante
+      const saveNota1 = (id, nombre, grado, grupo) =>
         fetch("/api/saveprogress", {
           method:"POST", headers:{"Content-Type":"application/json"},
           body:JSON.stringify({
-            estudiante_id: user.id, nombre_estudiante: user.name,
-            grado: user.grade||"", grupo: user.group||"",
+            estudiante_id: id, nombre_estudiante: nombre,
+            grado: grado||"", grupo: grupo||"",
             xp_total: 0, nivel: 1, mision_id: misionId||null,
           })
         }).catch(()=>{});
+
+      if (user?.id) {
+        // Guardar para el líder/estudiante actual
+        saveNota1(user.id, user.name, user.grade, user.group);
+
+        // Si está en equipo, guardar nota 1 para TODOS los integrantes
+        if (equipo?.integrantes?.length > 0) {
+          equipo.integrantes.forEach(m => {
+            saveNota1(m.id, `${m.nombres||""} ${m.apellidos||""}`.trim(), m.grado, m.grupo);
+          });
+        }
       }
     }
+  };
+
+  const handlePaste = (e) => registrarIntentoCopia(e);
+
+  // Detectar cuando el estudiante COPIA texto de los mensajes del chat
+  const handleCopy = () => {
+    if (compact) return;
+    const selected = window.getSelection()?.toString()?.trim();
+    if (!selected || selected.length < 5) return; // ignorar selecciones muy cortas
+    registrarIntentoCopia(null);
   };
 
   // ── Enviar mensaje ────────────────────────────────────────────
@@ -2372,7 +2397,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       )}
 
       {/* ── Mensajes ── */}
-      <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", minHeight:0, padding:isMobile?"10px 10px 4px":"16px 14px", display:"flex", flexDirection:"column", gap:10 }}>
+      <div onCopy={handleCopy} style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch", minHeight:0, padding:isMobile?"10px 10px 4px":"16px 14px", display:"flex", flexDirection:"column", gap:10 }}>
         {msgs.map((m,i)=>(
           <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", ...(m.role==="user"?{justifyContent:"flex-end",alignSelf:"flex-end"}:{}), maxWidth:isMobile?"92%":"82%" }}>
             {m.role==="assistant"&&<div style={{ width:28,height:28,borderRadius:"50%",background:`${C.accent}15`,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:C.accent,flexShrink:0 }}>⬡</div>}
@@ -2443,10 +2468,10 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
               Advertencia de Copia
             </div>
             <div style={{ fontSize:13, color:"#fde68a", lineHeight:1.9, marginBottom:14 }}>
-              Se detectó un intento de <strong>copiar y pegar</strong> texto en el chat.
+              Se detectó un intento de <strong>copiar texto</strong> del chat o <strong>pegar</strong> respuestas externas.
             </div>
             <div style={{ fontSize:14, fontWeight:800, color:"#f97316", padding:"12px 16px", background:"#2a1500", borderRadius:12, marginBottom:18, border:"1px solid #f9731633" }}>
-              ⚠️ Próxima vez se anulará la misión
+              🚨 Próximo intento se ANULA la misión
             </div>
             <div style={{ fontSize:11, color:"#92400e", marginBottom:20, lineHeight:1.6 }}>
               Las respuestas deben ser tuyas. Demuestra tu conocimiento. 💪
@@ -2472,12 +2497,17 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
               MISIÓN ANULADA
             </div>
             <div style={{ fontSize:13, color:"#fca5a5", lineHeight:1.9, marginBottom:10 }}>
-              Se detectó un <strong>segundo intento de copiar y pegar</strong> texto en el chat de NEXUS.
+              Se detectó un <strong>segundo intento de copiar o pegar</strong> texto. La misión ha sido anulada.
             </div>
             <div style={{ fontFamily:"'Orbitron',monospace", fontSize:52, fontWeight:900, color:"#ef4444", margin:"8px 0 4px", textShadow:"0 0 20px #ef4444" }}>1.0</div>
-            <div style={{ fontSize:13, color:"#fca5a5", marginBottom:20, fontWeight:600 }}>
+            <div style={{ fontSize:13, color:"#fca5a5", marginBottom:8, fontWeight:600 }}>
               Nota definitiva por integridad académica
             </div>
+            {equipo?.nombre && (
+              <div style={{ fontSize:12, color:"#fca5a5", marginBottom:16, padding:"8px 12px", background:"#2a0000", borderRadius:10, border:"1px solid #3f0000" }}>
+                ⚠️ Nota 1.0 aplicada a <strong>todos los integrantes</strong> del equipo <strong>{equipo.nombre}</strong>
+              </div>
+            )}
             <div style={{ fontSize:11, color:"#7f1d1d", padding:"14px 16px", background:"#2a0000", borderRadius:12, lineHeight:1.8, border:"1px solid #3f0000" }}>
               💡 El conocimiento que construyes tú mismo es el que de verdad te pertenece.<br/>
               <span style={{ color:"#991b1b" }}>El docente puede ver el registro completo de esta sesión.</span>
