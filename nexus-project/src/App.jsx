@@ -1897,40 +1897,22 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva
     ];
 
     try {
-      // 1. Guardar mensaje de sistema en nexus_chats (para bloqueo por misión)
-      await Promise.all(todosIntegrantes.map(m =>
-        fetch("/api/savechat", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            estudiante_id: m.id,
-            nombre_estudiante: m.nombre,
-            mision_id: misionEquipo,
-            mision_title: misionSel?.title || null,
-            role: "system",
-            content: `__equipo_registrado__:${nombreEquipo}:lider:${user.id}:mision:${misionEquipo}`,
-            xp_at_time: 0,
-            equipo_nombre: nombreEquipo,
-          })
+      // Usar endpoint dedicado que garantiza el guardado con múltiples fallbacks
+      const resp = await fetch("/api/registrar-equipo", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          equipo_nombre: nombreEquipo,
+          lider_id: user.id,
+          mision_id: misionEquipo,
+          mision_title: misionSel?.title || null,
+          integrantes: todosIntegrantes,
         })
-      ));
-
-      // 2. Guardar progreso inicial XP=0 en nexus_progreso (para que el docente vea el equipo)
-      await Promise.all(todosIntegrantes.map(m =>
-        fetch("/api/saveprogress", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            estudiante_id: m.id,
-            nombre_estudiante: m.nombre,
-            grado: m.grado,
-            grupo: m.grupo,
-            xp_total: 0,
-            nivel: 1,
-            mision_id: misionEquipo,
-            equipo: { nombre: nombreEquipo, integrantes: seleccionados },
-          })
-        })
-      ));
-    } catch(_) {}
+      });
+      const resultado = await resp.json();
+      if (resultado.errores) console.warn("Errores al registrar equipo:", resultado.errores);
+    } catch(e) {
+      console.error("Error registrando equipo:", e);
+    }
 
     setTimeout(() => { setSaved(false); onIrChat(); }, 1200);
   };
