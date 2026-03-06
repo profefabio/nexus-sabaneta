@@ -37,11 +37,12 @@ module.exports = async function handler(req, res) {
       let liderId = null;
       let misionId = null;
       try {
+        // Buscar el mensaje de registro (puede ser role=assistant o system)
         const { data: sysMsg } = await supabase
           .from("nexus_chats")
           .select("content")
           .eq("equipo_nombre", nombreEquipo)
-          .eq("role", "system")
+          .like("content", "__equipo_registrado__%")
           .order("created_at", { ascending: true })
           .limit(1);
         if (sysMsg?.length > 0) {
@@ -57,7 +58,7 @@ module.exports = async function handler(req, res) {
         .select("estudiante_id, nombre_estudiante")
         .eq("equipo_nombre", nombreEquipo)
         .neq("estudiante_id", String(estudiante_id))
-        .eq("role", "system")  // solo el registro inicial de cada integrante
+        .like("content", "__equipo_registrado__%")
         .order("created_at", { ascending: true })
         .limit(100);
 
