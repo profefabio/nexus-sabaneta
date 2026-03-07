@@ -2534,6 +2534,32 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     if (!t || loading || misionAnulada || retoCompleto) return;
     setInput("");
 
+    // Auto-detectar reto desde el mensaje si retoActual es null (estudiante escribió en el chat)
+    if (!retoActual && misionData?.retos?.length > 0) {
+      // Buscar patrón "Reto X" o "reto X" en el mensaje del estudiante
+      const matchReto = t.match(/[Rr]eto\s*(\d+)/);
+      if (matchReto) {
+        const retoNum = parseInt(matchReto[1]);
+        const retoEncontrado = misionData.retos.find(r => Number(r.id) === retoNum || r.id === retoNum);
+        if (retoEncontrado && setRetoActual) {
+          const idx = misionData.retos.indexOf(retoEncontrado);
+          setRetoActual({
+            id: retoEncontrado.id,
+            title: retoEncontrado.title,
+            stars: retoEncontrado.stars,
+            idx,
+            desc: retoEncontrado.desc,
+            duracion: retoEncontrado.duracion || null,
+            tipo_duracion: retoEncontrado.tipo_duracion || "horas"
+          });
+        }
+      } else if (misionData.retos.length === 1) {
+        // Si solo hay un reto, seleccionarlo automáticamente
+        const r = misionData.retos[0];
+        if (setRetoActual) setRetoActual({ id: r.id, title: r.title, stars: r.stars, idx: 0, desc: r.desc, duracion: r.duracion||null, tipo_duracion: r.tipo_duracion||"horas" });
+      }
+    }
+
     const newCount = interactionCount + 1;
     setInteractionCount(newCount);
 
@@ -2559,6 +2585,19 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         : reply;
 
       setMsgs(p => [...p, {role:"assistant", content:replyFinal}]);
+
+      // Auto-detectar reto desde la respuesta de NEXUS si retoActual aún es null
+      if (!retoActual && misionData?.retos?.length > 0 && setRetoActual) {
+        const matchReply = reply.match(/[Rr]eto\s*(\d+)/);
+        if (matchReply) {
+          const retoNum = parseInt(matchReply[1]);
+          const rf = misionData.retos.find(r => Number(r.id) === retoNum || r.id === retoNum);
+          if (rf) {
+            const idx = misionData.retos.indexOf(rf);
+            setRetoActual({ id: rf.id, title: rf.title, stars: rf.stars, idx, desc: rf.desc, duracion: rf.duracion||null, tipo_duracion: rf.tipo_duracion||"horas" });
+          }
+        }
+      }
 
       // XP por mérito: solo a partir del 2do intercambio (después de que el estudiante ya respondió algo)
       let xpGanado = 0;
