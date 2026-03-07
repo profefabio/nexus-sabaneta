@@ -1243,18 +1243,13 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
         </div>
       </Card>
 
-      {/* Colaboradores docentes */}
-      {(user.role==="admin"||user.role==="teacher") && (
+      {/* Colaboradores docentes — visible en móvil y desktop */}
+      {(user.role==="admin"||user.role==="teacher") && docentesColabs.filter(d=>String(d.id)!==String(user.id)).length > 0 && (
         <Card title="🤝 Docentes Colaboradores (misión compartida)">
           <div style={{ fontSize:11, color:C.muted, marginBottom:12, lineHeight:1.7 }}>
             Agrega colegas que podrán ver los informes y equipos de esta misión.<br/>
             <span style={{ color:C.accent3 }}>Los colaboradores NO pueden editarla, solo consultarla.</span>
           </div>
-          {docentesColabs.filter(d=>String(d.id)!==String(user.id)).length === 0 && (
-            <div style={{ fontSize:12, color:C.muted, padding:"10px 0", fontStyle:"italic" }}>
-              ⚠️ No hay otros docentes registrados en el sistema aún.
-            </div>
-          )}
           {docentesColabs.filter(d=>String(d.id)!==String(user.id)).map(d=>{
             const sel = (form.colaboradores||[]).includes(String(d.id));
             return (
@@ -1292,174 +1287,6 @@ function MisionesPanel({ user, misiones, setMisiones, loadingM }) {
 
 // ═══════════════════════════════════════════════════════════════
 // ADMIN VIEW
-
-// ═══════════════════════════════════════════════════════════════
-// PANEL DE ANUNCIOS — Docente crea, Estudiantes leen
-// ═══════════════════════════════════════════════════════════════
-function AnunciosPanel({ user }) {
-  const isMobile = useIsMobile();
-  const [anuncios, setAnuncios] = useState([]);
-  const [form, setForm] = useState({ mensaje: "", grado: "", grupo: "", prioridad: "normal" });
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-
-  const GRADOS = ["", "6", "7", "8", "9", "10", "11"];
-  const GRUPOS = ["", "A", "B", "C", "D"];
-
-  useEffect(() => {
-    fetch(`/api/anuncios?docente_id=${user.id}`)
-      .then(r => r.json())
-      .then(d => setAnuncios(d.anuncios || []))
-      .catch(() => {});
-  }, [user.id]);
-
-  const enviar = async () => {
-    if (!form.mensaje.trim()) return;
-    setSending(true);
-    try {
-      const r = await fetch("/api/anuncios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          docente_id: user.id,
-          docente_nombre: user.name,
-          mensaje: form.mensaje.trim(),
-          grado: form.grado || null,
-          grupo: form.grupo || null,
-          prioridad: form.prioridad,
-        }),
-      });
-      const d = await r.json();
-      if (d.ok && d.anuncio) {
-        setAnuncios(prev => [d.anuncio, ...prev]);
-        setForm({ mensaje: "", grado: "", grupo: "", prioridad: "normal" });
-        setSent(true);
-        setTimeout(() => setSent(false), 3000);
-      }
-    } catch (e) {}
-    setSending(false);
-  };
-
-  const eliminar = async (id) => {
-    if (!window.confirm("¿Eliminar este anuncio?")) return;
-    await fetch("/api/anuncios", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, docente_id: user.id }),
-    });
-    setAnuncios(prev => prev.filter(a => a.id !== id));
-  };
-
-  const prioColors = { urgente: "#ef4444", importante: "#f97316", normal: C.accent2 };
-  const prioLabel  = { urgente: "🚨 Urgente", importante: "⚠️ Importante", normal: "💬 Normal" };
-
-  return (
-    <Page title="📢 Anuncios para Estudiantes" desc="Los estudiantes ven tus mensajes con una campanita de notificación.">
-
-      {/* ── Composer ── */}
-      <Card title="✏️ Nuevo Anuncio">
-        <textarea
-          style={{ ...inp, minHeight: 80, resize: "vertical", marginBottom: 10 }}
-          placeholder="Escribe tu mensaje aquí... (visible para los estudiantes)"
-          value={form.mensaje}
-          onChange={e => setForm(p => ({ ...p, mensaje: e.target.value }))}
-        />
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-          <div style={{ flex: 1, minWidth: 100 }}>
-            <div style={lbl}>🎓 Grado (opcional)</div>
-            <select style={inp} value={form.grado} onChange={e => setForm(p => ({ ...p, grado: e.target.value }))}>
-              {GRADOS.map(g => <option key={g} value={g}>{g === "" ? "Todos los grados" : `Grado ${g}°`}</option>)}
-            </select>
-          </div>
-          <div style={{ flex: 1, minWidth: 100 }}>
-            <div style={lbl}>👥 Grupo (opcional)</div>
-            <select style={inp} value={form.grupo} onChange={e => setForm(p => ({ ...p, grupo: e.target.value }))}>
-              {GRUPOS.map(g => <option key={g} value={g}>{g === "" ? "Todos los grupos" : `Grupo ${g}`}</option>)}
-            </select>
-          </div>
-          <div style={{ flex: 1, minWidth: 120 }}>
-            <div style={lbl}>🔔 Prioridad</div>
-            <select style={{ ...inp, color: prioColors[form.prioridad] }} value={form.prioridad} onChange={e => setForm(p => ({ ...p, prioridad: e.target.value }))}>
-              <option value="normal">💬 Normal</option>
-              <option value="importante">⚠️ Importante</option>
-              <option value="urgente">🚨 Urgente</option>
-            </select>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button
-            onClick={enviar}
-            disabled={sending || !form.mensaje.trim()}
-            style={{ padding: "10px 22px", background: `linear-gradient(135deg,${C.accent},${C.accent2})`,
-              border: "none", borderRadius: 10, color: "#fff", fontWeight: 700, fontSize: 13,
-              cursor: form.mensaje.trim() ? "pointer" : "not-allowed", opacity: form.mensaje.trim() ? 1 : 0.5 }}>
-            {sending ? "Enviando..." : "📤 Publicar Anuncio"}
-          </button>
-          {sent && <span style={{ color: C.accent3, fontSize: 12, fontWeight: 700 }}>✅ ¡Anuncio publicado!</span>}
-        </div>
-        <div style={{ marginTop: 10, fontSize: 11, color: C.muted }}>
-          {form.grado || form.grupo
-            ? `📍 Visible solo para: ${form.grado ? `Grado ${form.grado}°` : "todos los grados"} ${form.grupo ? `· Grupo ${form.grupo}` : ""}`
-            : "📍 Visible para todos tus estudiantes"}
-        </div>
-      </Card>
-
-      {/* ── Lista de anuncios enviados ── */}
-      <Card title={`📋 Anuncios publicados (${anuncios.length})`}>
-        {anuncios.length === 0 && (
-          <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "20px 0" }}>
-            No tienes anuncios publicados aún.
-          </div>
-        )}
-        {anuncios.map(a => (
-          <div key={a.id} style={{
-            background: C.surface, borderRadius: 12, padding: "12px 14px", marginBottom: 10,
-            border: `1px solid ${prioColors[a.prioridad] || C.accent2}44`,
-            borderLeft: `4px solid ${prioColors[a.prioridad] || C.accent2}`,
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 6 }}>{a.mensaje}</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 10, color: C.muted }}>
-                  <span style={{ color: prioColors[a.prioridad], fontWeight: 700 }}>{prioLabel[a.prioridad]}</span>
-                  {a.grado && <span>🎓 Grado {a.grado}°</span>}
-                  {a.grupo && <span>👥 Grupo {a.grupo}</span>}
-                  {!a.grado && !a.grupo && <span>🌐 Todos los estudiantes</span>}
-                  <span>🕐 {new Date(a.created_at).toLocaleString("es-CO", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })}</span>
-                </div>
-              </div>
-              <button onClick={() => eliminar(a.id)} title="Eliminar"
-                style={{ background: "none", border: "none", color: "#ff7777", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>
-                🗑️
-              </button>
-            </div>
-          </div>
-        ))}
-      </Card>
-
-      {/* ── SQL migration hint ── */}
-      <Card title="⚙️ Configuración requerida">
-        <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.8 }}>
-          Para que los anuncios funcionen, ejecuta esta SQL en tu Supabase:
-        </div>
-        <pre style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px",
-          fontSize: 10, color: C.accent3, overflowX: "auto", marginTop: 8, lineHeight: 1.7 }}>
-{`CREATE TABLE IF NOT EXISTS nexus_anuncios (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  docente_id TEXT NOT NULL,
-  docente_nombre TEXT,
-  mensaje TEXT NOT NULL,
-  grado TEXT,
-  grupo TEXT,
-  prioridad TEXT DEFAULT 'normal',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);`}
-        </pre>
-      </Card>
-    </Page>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════
 function AdminView({ user, onLogout }) {
   const [tab, setTab] = useState("dashboard");
@@ -1469,8 +1296,7 @@ function AdminView({ user, onLogout }) {
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
       {id:"missions",icon:"🗺️",label:"Misiones"},{id:"equipos",icon:"👥",label:"Equipos"},
-      {id:"chats",icon:"💬",label:"Informes Chat"},{id:"anuncios",icon:"📢",label:"Anuncios"},
-      {id:"users",icon:"🔑",label:"Usuarios"},
+      {id:"chats",icon:"💬",label:"Informes Chat"},{id:"anuncios",icon:"📢",label:"Anuncios"},{id:"users",icon:"🔑",label:"Usuarios"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
       {tab==="progreso"&&<ProgresoPanel user={user} />}
@@ -1496,15 +1322,13 @@ function TeacherView({ user, onLogout }) {
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
       {id:"missions",icon:"🗺️",label:"Mis Misiones"},{id:"equipos",icon:"👥",label:"Equipos"},
-      {id:"chats",icon:"💬",label:"Informes Chat"},{id:"anuncios",icon:"📢",label:"Anuncios"},
-      {id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
+      {id:"chats",icon:"💬",label:"Informes Chat"},{id:"anuncios",icon:"📢",label:"Anuncios"},{id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
       {tab==="progreso"&&<ProgresoPanel user={user} />}
       {tab==="missions"&&<MisionesPanel user={user} misiones={misiones} setMisiones={setMisiones} loadingM={loadingM} />}
       {tab==="equipos"&&<EquiposPanel user={user} />}
       {tab==="chats"&&<ChatInformePanel user={user} />}
-      {tab==="anuncios"&&<AnunciosPanel user={user} />}
       {tab==="config"&&(
         <Page title="⚙️ Configura NEXUS">
           <Card title="📚 Asignatura"><div style={grid2}>
@@ -1519,6 +1343,7 @@ function TeacherView({ user, onLogout }) {
           <Btn onClick={()=>{setSaved(true);setTimeout(()=>setSaved(false),2000)}}>{saved?"✅ ¡Guardado!":"Guardar"}</Btn>
         </Page>
       )}
+      {tab==="anuncios"&&<AnunciosPanel user={user} />}
       {tab==="preview"&&<Page title="Vista previa"><NexusChat prompt={buildPrompt(cfg.subject||"Tecnología",cfg.grade,cfg.topics)} userName="Explorador" compact user={null} misionId={null} /></Page>}
     </Layout>
   );
@@ -1925,46 +1750,9 @@ function StudentView({ user, onLogout }) {
   const [retoActual, setRetoActual] = useState(null);
   const isMobile = useIsMobile();
 
-  // ── Bell / Anuncios ─────────────────────────────────
-  const [anuncios, setAnuncios] = useState([]);
-  const [showBell, setShowBell] = useState(false);
-
-  // Anuncios leídos — guardados en localStorage
-  const getLeidos = () => {
-    try { return JSON.parse(localStorage.getItem("nexus_leidos_"+user.id)||"[]"); }
-    catch { return []; }
-  };
-  const marcarLeido = (id) => {
-    const leidos = getLeidos();
-    if (!leidos.includes(id)) {
-      localStorage.setItem("nexus_leidos_"+user.id, JSON.stringify([...leidos, id]));
-      setAnuncios(prev => prev.map(a => a.id === id ? {...a, leido:true} : a));
-    }
-  };
-  const marcarTodosLeidos = () => {
-    const ids = anuncios.map(a => a.id);
-    localStorage.setItem("nexus_leidos_"+user.id, JSON.stringify(ids));
-    setAnuncios(prev => prev.map(a => ({...a, leido:true})));
-  };
-
-  // Cargar anuncios al iniciar (con polling cada 2 min)
-  useEffect(() => {
-    const cargar = () => {
-      if (!user?.docente_id) return;
-      fetch(`/api/anuncios?docente_id=${user.docente_id}&grado=${user.grade||""}&grupo=${user.group||""}`)
-        .then(r => r.json())
-        .then(d => {
-          const leidos = getLeidos();
-          setAnuncios((d.anuncios||[]).map(a => ({...a, leido: leidos.includes(a.id)})));
-        })
-        .catch(() => {});
-    };
-    cargar();
-    const interval = setInterval(cargar, 120000); // cada 2 min
-    return () => clearInterval(interval);
-  }, [user?.docente_id, user?.grade, user?.group]); // eslint-disable-line
-
-  const noLeidos = anuncios.filter(a => !a.leido).length;
+  // 🔔 Anuncios del docente
+  const { anuncios: anunciosStudent, noLeidos, showPanel: showAnuncios,
+          setShowPanel: setShowAnuncios, marcarTodosLeidos } = useAnunciosNoLeidos(user);
 
   // Al cambiar misión, resetear reto
   useEffect(() => { setRetoActual(null); }, [mission]);
@@ -2015,23 +1803,16 @@ function StudentView({ user, onLogout }) {
                 👥 {isMobile?equipo.nombre:`${equipo.nombre} (${equipo.integrantes.length+1})`}
               </div>}
               {!mission&&<div style={{ display:"flex", alignItems:"center", gap:4, background:`${C.accent3}15`, border:`1px solid ${C.accent3}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, color:C.accent3 }}>💬 {isMobile?"Libre":"Modo libre"}</div>}
-
-              {/* 🔔 Bell de anuncios */}
-              <button onClick={()=>{ setShowBell(true); marcarTodosLeidos(); }}
-                title={noLeidos > 0 ? `${noLeidos} anuncio(s) sin leer` : "Anuncios"}
-                style={{ position:"relative", cursor:"pointer",
-                  padding:"3px 6px", borderRadius:8, flexShrink:0,
-                  background: noLeidos>0?`#f59e0b22`:"transparent",
-                  border: noLeidos>0?`1px solid #f59e0b44`:"1px solid transparent" }}>
-                <span style={{ fontSize: isMobile?16:18 }}>{noLeidos>0?"🔔":"🔕"}</span>
-                {noLeidos > 0 && (
-                  <span style={{ position:"absolute", top:-4, right:-4, background:"#f59e0b",
-                    color:"#000", borderRadius:"50%", width:16, height:16,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    fontSize:9, fontWeight:900, fontFamily:"'Orbitron',monospace" }}>
-                    {noLeidos > 9 ? "9+" : noLeidos}
-                  </span>
-                )}
+              {/* 🔔 Campanita de anuncios */}
+              <button onClick={()=>{setShowAnuncios(true);marcarTodosLeidos();}}
+                style={{ position:"relative", background:noLeidos>0?`${C.accent3}20`:"none",
+                  border:noLeidos>0?`1px solid ${C.accent3}44`:`1px solid ${C.border}`,
+                  borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", cursor:"pointer",
+                  display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
+                <span style={{ fontSize:isMobile?14:15 }}>🔔</span>
+                {noLeidos>0&&<span style={{ background:C.accent3, color:"#0d1526", borderRadius:"50%",
+                  fontSize:9, fontWeight:900, width:16, height:16, display:"flex",
+                  alignItems:"center", justifyContent:"center", marginLeft:2 }}>{noLeidos}</span>}
               </button>
             </div>
           </div>
@@ -2061,78 +1842,51 @@ function StudentView({ user, onLogout }) {
         <StudentProgressCard user={user} />
       </Page>}
 
-      {/* ── Modal de Anuncios del Docente ── */}
-      {showBell && (
+      {/* 🔔 Panel de Anuncios */}
+      {showAnuncios && (
         <div style={{ position:"fixed", inset:0, background:"#000c", zIndex:200,
-          display:"flex", alignItems:"flex-start", justifyContent:"center", padding: isMobile?"0":"30px 20px" }}>
-          <div style={{ background:C.card, borderRadius: isMobile?0:18, border:`1px solid ${C.border}`,
-            width:"100%", maxWidth:520, maxHeight: isMobile?"100vh":"80vh",
-            display:"flex", flexDirection:"column", overflow:"hidden",
-            ...(isMobile?{position:"fixed",inset:0}:{}) }}>
-
-            {/* Header */}
-            <div style={{ padding:"16px 18px", borderBottom:`1px solid ${C.border}`,
-              display:"flex", alignItems:"center", gap:10, flexShrink:0,
-              background:`linear-gradient(135deg,${C.surface},${C.card})` }}>
-              <span style={{ fontSize:22 }}>📢</span>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:800, fontSize:15 }}>Anuncios de tu Docente</div>
-                <div style={{ fontSize:11, color:C.muted }}>{anuncios.length} mensaje(s) · {anuncios.filter(a=>!a.leido).length} sin leer</div>
+          display:"flex", alignItems:isMobile?"flex-end":"center", justifyContent:"center",
+          padding:isMobile?"0":"20px" }} onClick={()=>setShowAnuncios(false)}>
+          <div style={{ background:C.card, border:`1px solid ${C.accent3}66`,
+            borderRadius:isMobile?"16px 16px 0 0":16, padding:24,
+            maxWidth:480, width:"100%", maxHeight:isMobile?"80vh":"70vh",
+            display:"flex", flexDirection:"column", animation:"popIn .2s ease" }}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
+              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:14, fontWeight:900, color:C.accent3 }}>
+                🔔 Anuncios del Docente
               </div>
-              <button onClick={()=>setShowBell(false)} style={{ background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:20 }}>✕</button>
+              <button onClick={()=>setShowAnuncios(false)}
+                style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:18 }}>✕</button>
             </div>
-
-            {/* Content */}
-            <div style={{ flex:1, overflowY:"auto", padding:"14px 16px" }}>
-              {anuncios.length === 0 ? (
-                <div style={{ textAlign:"center", padding:"40px 20px", color:C.muted }}>
-                  <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
-                  <div style={{ fontSize:14 }}>No hay anuncios por el momento.</div>
-                  <div style={{ fontSize:12, marginTop:6 }}>Tu docente publicará mensajes importantes aquí.</div>
+            <div style={{ overflowY:"auto", flex:1 }}>
+              {anunciosStudent.length === 0 ? (
+                <div style={{ color:C.muted, fontSize:13, textAlign:"center", padding:"30px 0" }}>
+                  <div style={{ fontSize:32, marginBottom:8 }}>📭</div>
+                  No hay anuncios en este momento.
                 </div>
-              ) : anuncios.map(a => {
-                const prioColor = {urgente:"#ef4444",importante:"#f97316",normal:C.accent2}[a.prioridad]||C.accent2;
-                const prioLabel = {urgente:"🚨 Urgente",importante:"⚠️ Importante",normal:"💬 Normal"}[a.prioridad]||"💬";
+              ) : anunciosStudent.map(a => {
+                const priColors = { urgente:"#ef4444", importante:"#f97316", normal:C.accent2 };
+                const priIcons  = { urgente:"🚨", importante:"⚠️", normal:"💬" };
                 return (
-                  <div key={a.id} onClick={()=>marcarLeido(a.id)}
-                    style={{ background: a.leido ? C.surface : `${prioColor}12`,
-                      border:`1px solid ${a.leido ? C.border : prioColor+"55"}`,
-                      borderLeft:`4px solid ${a.leido ? C.border : prioColor}`,
-                      borderRadius:12, padding:"13px 14px", marginBottom:10,
-                      cursor:"pointer", transition:"all .2s",
-                      boxShadow: a.leido ? "none" : `0 2px 12px ${prioColor}22` }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-                      <span style={{ fontSize:10, fontWeight:700, color: prioColor,
-                        background:`${prioColor}20`, padding:"2px 8px", borderRadius:20 }}>{prioLabel}</span>
-                      {!a.leido && <span style={{ fontSize:9, background:"#f59e0b", color:"#000",
-                        fontWeight:800, padding:"2px 6px", borderRadius:10 }}>NUEVO</span>}
-                      <span style={{ marginLeft:"auto", fontSize:10, color:C.muted }}>
-                        {new Date(a.created_at).toLocaleString("es-CO",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}
-                      </span>
+                  <div key={a.id} style={{ padding:"12px 14px", background:C.surface,
+                    borderRadius:10, marginBottom:8,
+                    border:`1px solid ${priColors[a.prioridad]||C.border}55` }}>
+                    <div style={{ display:"flex", gap:8, marginBottom:6 }}>
+                      <span style={{ fontSize:16 }}>{priIcons[a.prioridad]||"💬"}</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, lineHeight:1.6, fontWeight:a.prioridad==="urgente"?700:400 }}>
+                          {a.mensaje}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize:13, lineHeight:1.7, fontWeight: a.leido?400:500 }}>{a.mensaje}</div>
-                    <div style={{ marginTop:6, fontSize:10, color:C.muted }}>
-                      📚 {a.docente_nombre}
-                      {a.grado && ` · Grado ${a.grado}°`}
-                      {a.grupo && ` · Grupo ${a.grupo}`}
+                    <div style={{ fontSize:10, color:C.muted, display:"flex", gap:8, flexWrap:"wrap" }}>
+                      <span>📚 {a.docente_nombre}</span>
+                      <span>🕐 {new Date(a.created_at).toLocaleString("es-CO")}</span>
                     </div>
                   </div>
                 );
               })}
-            </div>
-
-            {/* Footer */}
-            <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, display:"flex", gap:8, flexShrink:0 }}>
-              <button onClick={()=>{ marcarTodosLeidos(); setShowBell(false); }}
-                style={{ flex:1, padding:"10px", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
-                  border:"none", borderRadius:10, color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}>
-                ✓ Marcar todo como leído
-              </button>
-              <button onClick={()=>setShowBell(false)}
-                style={{ padding:"10px 16px", background:"transparent", border:`1px solid ${C.border}`,
-                  borderRadius:10, color:C.muted, fontSize:12, cursor:"pointer" }}>
-                Cerrar
-              </button>
             </div>
           </div>
         </div>
@@ -2455,66 +2209,51 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   const retoCompleto = interactionCount >= MAX_INT;
 
-  // ── Countdown timer del reto ──────────────────────────────────
-  const [retoDeadline, setRetoDeadline] = useState(null);   // ms timestamp
-  const [countdown, setCountdown] = useState(null);          // segundos restantes
-  const [timerAlert, setTimerAlert] = useState(null);        // "warning"|"critical"|"finished"
-  const [timerAlertShown, setTimerAlertShown] = useState({ warning:false, critical:false });
+  // ── Contador regresivo del reto (basado en duracion del reto) ──
+  const [tiempoRestante, setTiempoRestante]   = useState(null); // segundos
+  const [tiempoAlerta, setTiempoAlerta]       = useState(false);
+  const [tiempoInicio, setTiempoInicio]       = useState(null); // timestamp inicio
+  const countdownRef = useRef(null);
 
-  // Iniciar timer cuando se comienza el reto
+  // Iniciar contador cuando cambia retoActual (si tiene tiempo definido)
   useEffect(() => {
-    if (!retoActual?.duracion || !retoActual?.tipo_duracion) {
-      setRetoDeadline(null);
-      setCountdown(null);
-      setTimerAlert(null);
-      return;
-    }
-    const durMs = Number(retoActual.duracion) *
-      (retoActual.tipo_duracion === "dias" ? 86400000 : 3600000);
-    if (!durMs) return;
-    const stored = sessionStorage.getItem(`nexus_timer_${retoActual.id}`);
-    const startMs = stored ? Number(stored) : Date.now();
-    if (!stored) sessionStorage.setItem(`nexus_timer_${retoActual.id}`, String(startMs));
-    setRetoDeadline(startMs + durMs);
-    setTimerAlertShown({ warning:false, critical:false });
-  }, [retoActual?.id, retoActual?.duracion, retoActual?.tipo_duracion]); // eslint-disable-line
+    clearInterval(countdownRef.current);
+    setTiempoAlerta(false);
+    if (!retoActual?.duracion) { setTiempoRestante(null); return; }
 
-  // Tick del countdown
-  useEffect(() => {
-    if (!retoDeadline) return;
-    const tick = () => {
-      const left = Math.max(0, Math.round((retoDeadline - Date.now()) / 1000));
-      setCountdown(left);
-      // Duración total
-      const durSec = retoActual?.duracion
-        ? Number(retoActual.duracion) * (retoActual.tipo_duracion === "dias" ? 86400 : 3600)
-        : 0;
-      if (durSec > 0) {
-        const pct = left / durSec;
-        if (left === 0 && !timerAlertShown.critical) {
-          setTimerAlert("finished");
-          setTimerAlertShown(p => ({ ...p, critical:true }));
-        } else if (pct <= 0.1 && !timerAlertShown.critical && left > 0) {
-          setTimerAlert("critical");
-          setTimerAlertShown(p => ({ ...p, critical:true }));
-        } else if (pct <= 0.25 && !timerAlertShown.warning && left > 0) {
-          setTimerAlert("warning");
-          setTimerAlertShown(p => ({ ...p, warning:true }));
-        }
-      }
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [retoDeadline]); // eslint-disable-line
+    const durSeg = retoActual.tipo_duracion === "dias"
+      ? Number(retoActual.duracion) * 86400
+      : Number(retoActual.duracion) * 3600;
 
-  const fmtCountdown = (s) => {
-    if (s == null) return "";
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return `${h}h ${m.toString().padStart(2,"0")}m`;
-    return `${m.toString().padStart(2,"0")}:${sec.toString().padStart(2,"0")}`;
+    if (!durSeg || durSeg <= 0) { setTiempoRestante(null); return; }
+
+    const inicio = Date.now();
+    setTiempoInicio(inicio);
+    setTiempoRestante(durSeg);
+
+    countdownRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - inicio) / 1000);
+      const restante = Math.max(0, durSeg - elapsed);
+      setTiempoRestante(restante);
+      // Alerta cuando queda menos del 20% o menos de 10 minutos
+      setTiempoAlerta(restante > 0 && (restante <= Math.min(600, durSeg * 0.2)));
+      if (restante <= 0) clearInterval(countdownRef.current);
+    }, 1000);
+
+    return () => clearInterval(countdownRef.current);
+  }, [retoActual?.id]); // eslint-disable-line
+
+  // Formatear tiempo restante
+  const formatTiempo = (seg) => {
+    if (seg === null) return null;
+    if (seg <= 0) return "⏰ ¡Tiempo!";
+    const d = Math.floor(seg / 86400);
+    const h = Math.floor((seg % 86400) / 3600);
+    const m = Math.floor((seg % 3600) / 60);
+    const s = seg % 60;
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}:${String(s).padStart(2,"0")}`;
   };
 
   // Reset al cambiar de MISIÓN — carga XP acumulado desde la BD
@@ -2751,69 +2490,52 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         </div>
         <span style={{ fontSize:9, color:C.muted, fontFamily:"'Orbitron',monospace" }}>{xp} XP</span>
         {user&&<span style={{ fontSize:10, fontWeight:800, color:notaColor(xpToNota(xp)), fontFamily:"'Orbitron',monospace", background:C.card, padding:"1px 7px", borderRadius:6, border:`1px solid ${notaColor(xpToNota(xp))}55` }}>▶ {xpToNota(xp).toFixed(1)}</span>}
+        {/* ⏱️ Contador regresivo del reto */}
+        {tiempoRestante !== null && (
+          <span style={{
+            fontSize:10, fontWeight:800, fontFamily:"'Orbitron',monospace",
+            background: tiempoRestante<=0 ? "#ef444422" : tiempoAlerta ? "#f9731622" : `${C.accent}15`,
+            color: tiempoRestante<=0 ? "#ef4444" : tiempoAlerta ? "#f97316" : C.accent,
+            padding:"1px 7px", borderRadius:6,
+            border:`1px solid ${tiempoRestante<=0?"#ef444455":tiempoAlerta?"#f9731655":C.accent+"55"}`,
+            animation: tiempoAlerta && tiempoRestante > 0 ? "pulse 1s infinite" : "none",
+            display:"flex", alignItems:"center", gap:4
+          }}>
+            ⏱️ {formatTiempo(tiempoRestante)}
+          </span>
+        )}
         {xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:11, color:C.accent3, fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:`1px solid ${C.accent3}` }}>+{xpAnim} XP ✨</span>}
       </div>
+      {/* ⚠️ Alerta tiempo crítico */}
+      {tiempoAlerta && tiempoRestante > 0 && !compact && (
+        <div style={{ background:"#f9731615", borderBottom:"1px solid #f9731633",
+          padding:"5px 14px", fontSize:11, color:"#f97316", display:"flex",
+          alignItems:"center", gap:6, flexShrink:0 }}>
+          ⚠️ <strong>¡Atención!</strong> Quedan {formatTiempo(tiempoRestante)} para completar el reto.
+          {tiempoRestante <= 60 && <strong style={{ color:"#ef4444" }}> ¡Menos de 1 minuto!</strong>}
+        </div>
+      )}
+      {tiempoRestante === 0 && !compact && (
+        <div style={{ background:"#ef444415", borderBottom:"1px solid #ef444433",
+          padding:"6px 14px", fontSize:11, color:"#ef4444", display:"flex",
+          alignItems:"center", gap:6, fontWeight:700, flexShrink:0 }}>
+          ⏰ ¡El tiempo del reto ha terminado! El docente puede ver tu progreso hasta este punto.
+        </div>
+      )}
 
-      {/* ── Barra de progreso del reto (interacciones) + countdown ── */}
+      {/* ── Barra de progreso del reto (interacciones) ── */}
       {misionData && !compact && (
         <div style={{ padding:isMobile?"3px 10px 4px":"5px 14px 7px", background:`${colReto}08`, borderBottom:`1px solid ${colReto}22`, flexShrink:0 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:isMobile?2:4, gap:6 }}>
-            <span style={{ fontSize:isMobile?9:10, color:colReto, fontWeight:700, flex:1 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:isMobile?2:4 }}>
+            <span style={{ fontSize:isMobile?9:10, color:colReto, fontWeight:700 }}>
               {retoCompleto ? "🏁 Completado 10/10" : `⚡ ${interactionCount}/${MAX_INT} interacciones`}
             </span>
-
-            {/* ⏱️ Countdown del reto */}
-            {countdown != null && retoActual?.duracion && !retoCompleto && (
-              <span style={{ fontSize:isMobile?9:10, fontFamily:"'Orbitron',monospace", fontWeight:800, flexShrink:0,
-                color: countdown===0 ? "#ef4444" :
-                       countdown / (Number(retoActual.duracion)*(retoActual.tipo_duracion==="dias"?86400:3600)) <= 0.1 ? "#ef4444" :
-                       countdown / (Number(retoActual.duracion)*(retoActual.tipo_duracion==="dias"?86400:3600)) <= 0.25 ? "#f97316" : "#10d98a",
-                background: countdown===0 ? "#ef444422" :
-                            countdown / (Number(retoActual.duracion)*(retoActual.tipo_duracion==="dias"?86400:3600)) <= 0.1 ? "#ef444415" :
-                            countdown / (Number(retoActual.duracion)*(retoActual.tipo_duracion==="dias"?86400:3600)) <= 0.25 ? "#f9741615" : "transparent",
-                padding: "0px 6px", borderRadius:6, border:"1px solid transparent",
-                animation: countdown > 0 && countdown / (Number(retoActual.duracion)*(retoActual.tipo_duracion==="dias"?86400:3600)) <= 0.1 ? "pulse 1s infinite" : "none",
-              }}>
-                {countdown === 0 ? "⏰ ¡Tiempo!" : `⏱️ ${fmtCountdown(countdown)}`}
-              </span>
-            )}
-
-            <span style={{ fontSize:isMobile?9:10, color:C.muted, fontFamily:"'Orbitron',monospace", flexShrink:0 }}>
+            <span style={{ fontSize:isMobile?9:10, color:C.muted, fontFamily:"'Orbitron',monospace" }}>
               {retoCompleto ? `Nota: ${xpToNota(xp).toFixed(1)}` : `${MAX_INT - interactionCount} quedan`}
             </span>
           </div>
           <div style={{ height:isMobile?3:5, background:C.border, borderRadius:3 }}>
             <div style={{ height:"100%", width:`${progReto}%`, background:`linear-gradient(90deg,${colReto},${C.accent2})`, borderRadius:3, transition:"width .4s ease" }} />
-          </div>
-        </div>
-      )}
-
-      {/* ── Alertas del countdown ── */}
-      {timerAlert && (
-        <div style={{ position:"fixed", inset:0, background:"#000c", zIndex:300,
-          display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-          <div style={{ background:C.card, borderRadius:18, border:`2px solid ${timerAlert==="finished"?"#ef4444":"#f97316"}`,
-            padding:"28px 32px", maxWidth:380, width:"100%", textAlign:"center",
-            boxShadow:`0 0 40px ${timerAlert==="finished"?"#ef444466":"#f9741644"}` }}>
-            <div style={{ fontSize:48, marginBottom:12 }}>
-              {timerAlert==="finished"?"⏰":timerAlert==="critical"?"🚨":"⚠️"}
-            </div>
-            <div style={{ fontFamily:"'Orbitron',monospace", fontSize:18, fontWeight:900, marginBottom:10,
-              color:timerAlert==="finished"?"#ef4444":"#f97316" }}>
-              {timerAlert==="finished"?"¡TIEMPO AGOTADO!":timerAlert==="critical"?"¡TIEMPO CRÍTICO!":"¡TIEMPO CASI TERMINADO!"}
-            </div>
-            <div style={{ fontSize:13, color:C.muted, lineHeight:1.7, marginBottom:20 }}>
-              {timerAlert==="finished"
-                ? "El tiempo para este reto ha expirado. Completa tu respuesta final lo antes posible."
-                : timerAlert==="critical"
-                ? `Solo quedan ${fmtCountdown(countdown)} — ¡envía tu respuesta ahora!`
-                : `Queda menos del 25% del tiempo (${fmtCountdown(countdown)}) — ¡apúrate!`}
-            </div>
-            <button onClick={()=>setTimerAlert(null)}
-              style={{ padding:"11px 28px", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
-                border:"none", borderRadius:10, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer" }}>
-              Entendido — ¡a trabajar! 💪
-            </button>
           </div>
         </div>
       )}
@@ -3648,6 +3370,218 @@ function EquiposPanel({ user }) {
 
 
 // ── Shared components ──
+// ══════════════════════════════════════════════════════════
+// ANUNCIOS PANEL — Docente crea, Estudiantes reciben con 🔔
+// ══════════════════════════════════════════════════════════
+function AnunciosPanel({ user }) {
+  const [mensaje, setMensaje] = useState("");
+  const [grado, setGrado]     = useState("");
+  const [grupo, setGrupo]     = useState("");
+  const [prioridad, setPrioridad] = useState("normal");
+  const [anuncios, setAnuncios]   = useState([]);
+  const [saving, setSaving]       = useState(false);
+  const [saved, setSaved]         = useState(false);
+  const [tablaFalta, setTablaFalta] = useState(false);
+  const [sqlSetup, setSqlSetup]   = useState("");
+  const isMobile = useIsMobile();
+
+  useEffect(() => {
+    fetch(`/api/anuncios?docente_id=${user.id}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error === "tabla_no_existe") { setTablaFalta(true); return; }
+        setAnuncios(d.anuncios || []);
+      }).catch(() => {});
+  }, [user.id]);
+
+  const publicar = async () => {
+    if (!mensaje.trim()) return;
+    setSaving(true);
+    const r = await fetch("/api/anuncios", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        docente_id: user.id, docente_nombre: user.name,
+        mensaje: mensaje.trim(), grado: grado || null,
+        grupo: (grado && grupo) ? grupo : null, prioridad,
+      })
+    }).then(r => r.json()).catch(() => ({ success: false }));
+    setSaving(false);
+    if (r.success) {
+      setAnuncios(prev => [r.anuncio, ...prev]);
+      setMensaje(""); setGrado(""); setGrupo("");
+      setSaved(true); setTimeout(() => setSaved(false), 2500);
+    } else if (r.error === "tabla_no_existe") {
+      setTablaFalta(true); setSqlSetup(r.sql || "");
+    }
+  };
+
+  const eliminar = async (id) => {
+    if (!confirm("¿Eliminar este anuncio?")) return;
+    await fetch(`/api/anuncios?id=${id}&docente_id=${user.id}`, { method: "DELETE" }).catch(() => {});
+    setAnuncios(prev => prev.filter(a => a.id !== id));
+  };
+
+  const priColors = { urgente:"#ef4444", importante:"#f97316", normal:"#8b5cf6" };
+  const priIcons  = { urgente:"🚨", importante:"⚠️", normal:"💬" };
+
+  return (
+    <Page title="📢 Anuncios para Estudiantes" desc="Los estudiantes ven tus mensajes con una campanita de notificación.">
+
+      {tablaFalta && (
+        <Card title="⚙️ Configuración requerida">
+          <div style={{ fontSize:12, color:C.muted, marginBottom:10, lineHeight:1.7 }}>
+            Para que los anuncios funcionen, ejecuta esta SQL en tu Supabase:
+          </div>
+          <pre style={{ background:"#0a1628", border:"1px solid #1a3050", borderRadius:10,
+            padding:"12px 14px", fontSize:11, color:"#10d98a", overflowX:"auto", lineHeight:1.6 }}>
+{`CREATE TABLE IF NOT EXISTS nexus_anuncios (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  docente_id TEXT NOT NULL,
+  docente_nombre TEXT,
+  mensaje TEXT NOT NULL,
+  grado TEXT,
+  grupo TEXT,
+  prioridad TEXT DEFAULT 'normal',
+  created_at TIMESTAMPTZ DEFAULT now()
+);`}
+            </pre>
+          <div style={{ fontSize:11, color:"#f97316", marginTop:8 }}>
+            Luego recarga esta página y podrás crear anuncios.
+          </div>
+        </Card>
+      )}
+
+      {/* Nuevo anuncio */}
+      <Card title="📝 Nuevo Anuncio">
+        <textarea
+          style={{ ...inp, minHeight:80, resize:"vertical", marginBottom:12 }}
+          placeholder="Escribe tu mensaje para los estudiantes..."
+          value={mensaje}
+          onChange={e => setMensaje(e.target.value)}
+        />
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr", gap:10, marginBottom:12 }}>
+          <div>
+            <label style={lbl}>🎓 Grado (opcional)</label>
+            <select style={inp} value={grado} onChange={e => { setGrado(e.target.value); setGrupo(""); }}>
+              <option value="">Todos los grados</option>
+              {["6","7","8","9","10","11"].map(g => (
+                <option key={g} value={g}>Grado {g}°</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={lbl}>👥 Grupo (opcional)</label>
+            <select style={inp} value={grupo} onChange={e => setGrupo(e.target.value)} disabled={!grado}>
+              <option value="">Todos los grupos</option>
+              {["1","2","3","4"].map(g => (
+                <option key={g} value={g}>Grupo {g}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={lbl}>🔔 Prioridad</label>
+            <select style={inp} value={prioridad} onChange={e => setPrioridad(e.target.value)}>
+              <option value="normal">💬 Normal</option>
+              <option value="importante">⚠️ Importante</option>
+              <option value="urgente">🚨 Urgente</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+          <button onClick={publicar} disabled={!mensaje.trim() || saving || tablaFalta}
+            style={{ padding:"10px 22px", background:`linear-gradient(135deg,${C.accent},${C.accent2})`,
+              border:"none", borderRadius:10, color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer",
+              opacity:(!mensaje.trim()||saving||tablaFalta)?0.5:1 }}>
+            {saving ? "Publicando..." : saved ? "✅ Publicado" : "📣 Publicar Anuncio"}
+          </button>
+          {(grado || grupo) && (
+            <div style={{ fontSize:11, color:C.accent3 }}>
+              📌 Visible solo para: {grado ? `Grado ${grado}°` : "Todos"}
+              {grupo ? ` · Grupo ${grupo}` : ""}
+            </div>
+          )}
+          {!grado && (
+            <div style={{ fontSize:11, color:C.muted }}>
+              📌 Visible para todos los estudiantes
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Lista de anuncios publicados */}
+      <Card title={`📋 Anuncios publicados (${anuncios.length})`}>
+        {anuncios.length === 0 ? (
+          <div style={{ color:C.muted, fontSize:13, textAlign:"center", padding:"20px 0" }}>
+            No tienes anuncios publicados aún.
+          </div>
+        ) : anuncios.map(a => (
+          <div key={a.id} style={{ display:"flex", gap:10, padding:"12px 14px", background:C.surface,
+            borderRadius:10, marginBottom:8, border:`1px solid ${priColors[a.prioridad]||C.border}33`,
+            alignItems:"flex-start" }}>
+            <span style={{ fontSize:18, flexShrink:0 }}>{priIcons[a.prioridad]||"💬"}</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, lineHeight:1.6, marginBottom:4 }}>{a.mensaje}</div>
+              <div style={{ fontSize:10, color:C.muted, display:"flex", gap:8, flexWrap:"wrap" }}>
+                <span>🕐 {new Date(a.created_at).toLocaleString("es-CO")}</span>
+                {a.grado && <span style={{ color:C.accent3 }}>🎓 Grado {a.grado}{a.grupo ? ` · Grupo ${a.grupo}` : ""}</span>}
+                {!a.grado && <span style={{ color:C.muted }}>👁️ Todos</span>}
+                <span style={{ color:priColors[a.prioridad], fontWeight:700, textTransform:"capitalize" }}>
+                  {priIcons[a.prioridad]} {a.prioridad}
+                </span>
+              </div>
+            </div>
+            <button onClick={() => eliminar(a.id)}
+              style={{ background:"#ff444422", border:"1px solid #ff444444", borderRadius:8,
+                color:"#ff7777", fontSize:11, cursor:"pointer", padding:"4px 10px", flexShrink:0 }}>
+              🗑️
+            </button>
+          </div>
+        ))}
+      </Card>
+    </Page>
+  );
+}
+
+// ── Hook: anuncios no leídos para estudiantes (campanita) ──
+function useAnunciosNoLeidos(user) {
+  const [anuncios, setAnuncios]       = useState([]);
+  const [noLeidos, setNoLeidos]       = useState(0);
+  const [showPanel, setShowPanel]     = useState(false);
+
+  useEffect(() => {
+    if (!user?.id || !user?.grade) return;
+    let isMounted = true;
+
+    const cargar = () => {
+      fetch(`/api/anuncios?estudiante_id=${user.id}&grado=${user.grade}&grupo=${user.group||""}`)
+        .then(r => r.json())
+        .then(d => {
+          if (!isMounted) return;
+          const lista = d.anuncios || [];
+          setAnuncios(lista);
+          // Revisar cuáles no han sido leídos (usamos localStorage para tracking ligero)
+          const leidos = JSON.parse(localStorage.getItem(`nexus_leidos_${user.id}`) || "[]");
+          setNoLeidos(lista.filter(a => !leidos.includes(a.id)).length);
+        }).catch(() => {});
+    };
+
+    cargar();
+    // Recargar cada 2 minutos
+    const interval = setInterval(cargar, 120000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, [user?.id, user?.grade, user?.group]);
+
+  const marcarTodosLeidos = () => {
+    const ids = anuncios.map(a => a.id);
+    const prevLeidos = JSON.parse(localStorage.getItem(`nexus_leidos_${user.id}`) || "[]");
+    localStorage.setItem(`nexus_leidos_${user.id}`, JSON.stringify([...new Set([...prevLeidos, ...ids])]));
+    setNoLeidos(0);
+  };
+
+  return { anuncios, noLeidos, showPanel, setShowPanel, marcarTodosLeidos };
+}
+
 function Layout({ sidebar, children }) {
   const isMobile = useIsMobile();
   return (
@@ -3715,14 +3649,12 @@ function Page({ title, desc, children }) {
   return (
     <div style={{
       flex:1,
-      minHeight:0,
       overflowY:"auto",
       overflowX:"hidden",
       WebkitOverflowScrolling:"touch",   /* iOS momentum scroll */
-      padding: isMobile?"14px 12px 100px":"26px",
+      padding: isMobile?"14px 12px 90px":"26px",
       maxWidth:900,
       boxSizing:"border-box",
-      width:"100%",
     }}>
       <h1 style={{ ...ptitle, fontSize: isMobile?17:22 }}>{title}</h1>
       {desc&&<p style={{ fontSize:12, color:C.muted, marginBottom:18 }}>{desc}</p>}
