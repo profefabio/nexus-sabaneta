@@ -2299,11 +2299,16 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   useEffect(() => {
     clearInterval(countdownRef.current);
     setTiempoAlerta(false);
-    if (!retoActual?.duracion) { setTiempoRestante(null); return; }
+    const dur = retoActual?.duracion;
+    if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) {
+      setTiempoRestante(null);
+      return;
+    }
 
-    const durSeg = retoActual.tipo_duracion === "dias"
-      ? Number(retoActual.duracion) * 86400
-      : Number(retoActual.duracion) * 3600;
+    const esDias = retoActual.tipo_duracion === "dias";
+    const durSeg = esDias
+      ? Number(dur) * 86400
+      : Number(dur) * 3600;
 
     if (!durSeg || durSeg <= 0) { setTiempoRestante(null); return; }
 
@@ -2323,7 +2328,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     return () => clearInterval(countdownRef.current);
   }, [retoActual?.id]); // eslint-disable-line
 
-  // Formatear tiempo restante
+  // Formatear tiempo restante para mostrar en UI
   const formatTiempo = (seg) => {
     if (seg === null) return null;
     if (seg <= 0) return "⏰ ¡Tiempo!";
@@ -2331,9 +2336,10 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     const h = Math.floor((seg % 86400) / 3600);
     const m = Math.floor((seg % 3600) / 60);
     const s = seg % 60;
-    if (d > 0) return `${d}d ${h}h ${m}m`;
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    return `${m}:${String(s).padStart(2,"0")}`;
+    if (d > 0) return `${d}d ${String(h).padStart(2,"0")}h ${String(m).padStart(2,"0")}m`;
+    if (h > 0) return `${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`;
+    if (m > 0) return `${m}m ${String(s).padStart(2,"0")}s`;
+    return `${s}s`;
   };
 
   // Reset al cambiar de MISIÓN — carga XP acumulado desde la BD
@@ -2683,7 +2689,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
               <div style={{ fontSize:11, color:C.muted, marginBottom:12 }}>{xp} XP · {msgs.filter(m=>m.role==="user").length} interacciones</div>
               {sigReto ? (
                 <button onClick={() => {
-                  if (setRetoActual) setRetoActual({ id: sigReto.id, title: sigReto.title, stars: sigReto.stars, idx: retoActual.idx + 1, desc: sigReto.desc });
+                  if (setRetoActual) setRetoActual({ id: sigReto.id, title: sigReto.title, stars: sigReto.stars, idx: retoActual.idx + 1, desc: sigReto.desc, duracion: sigReto.duracion||null, tipo_duracion: sigReto.tipo_duracion||"horas" });
                 }} style={{ padding:"10px 24px", background:`linear-gradient(135deg,${C.accent3},${C.accent})`, border:"none", borderRadius:12, color:"#0d1526", fontWeight:900, fontSize:13, cursor:"pointer", marginBottom:8 }}>
                   🚀 Iniciar Reto {sigReto.id}: {sigReto.title} →
                 </button>
@@ -2808,7 +2814,7 @@ function MissionMap({ misiones, onSelect }) {
             <div style={{ fontSize:11,color:C.muted }}>{r.desc}</div>
           </div>
           {onSelect && (
-            <button onClick={e=>{ e.stopPropagation(); onSelect(m.id, { id:r.id, title:r.title, stars:r.stars, idx:ri, desc:r.desc }); }}
+            <button onClick={e=>{ e.stopPropagation(); onSelect(m.id, { id:r.id, title:r.title, stars:r.stars, idx:ri, desc:r.desc, duracion:r.duracion||null, tipo_duracion:r.tipo_duracion||"horas" }); }}
               style={{ padding:"5px 12px", background:`${m.color}22`, border:`1px solid ${m.color}55`,
                 borderRadius:8, color:m.color, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>
               ▶ Iniciar
