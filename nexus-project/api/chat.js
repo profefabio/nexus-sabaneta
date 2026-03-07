@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
 
   // ── CORRECCIÓN: Timeout de 25 segundos con AbortController ──
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
