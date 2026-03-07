@@ -2735,31 +2735,49 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   // Mantener ref sincronizado con el estado actual (para event listeners de visibilidad)
   useEffect(() => { tiempoRestanteRef.current = tiempoRestante; }, [tiempoRestante]);
 
-  // ── Auto-detectar reto activo desde historial de mensajes ─────────────
-  // Cuando la sesión se restaura, retoActual llega null aunque el estudiante
-  // ya estaba trabajando en un reto. Este effect lo detecta desde el reto_id
-  // guardado en los mensajes del historial, una sola vez por sesión.
+  // ── Auto-detectar reto activo consultando la tabla de timers ────────
+  // Cuando la sesión se restaura, retoActual llega null. Los mensajes no
+  // sirven (se guardaron con reto_id=null por el async de setRetoActual).
+  // La tabla nexus_timers SÍ tiene el reto_id correcto → la consultamos.
   useEffect(() => {
-    if (retoActual || retoAutoDetectado.current) return;   // ya está seteado
-    if (!misionData?.retos?.length || !setRetoActual) return;
-    // Buscar el reto_id más reciente en los mensajes cargados
-    const ultimoRetoId = [...msgs].reverse().find(m => m.retoId)?.retoId;
-    if (!ultimoRetoId) return;
-    const reto = misionData.retos.find(r => String(r.id) === String(ultimoRetoId));
-    if (!reto) return;
-    const idx = misionData.retos.indexOf(reto);
-    retoAutoDetectado.current = true;
-    console.log("[NEXUS TIMER] 🔍 Auto-detectando reto desde historial →", reto.id, reto.title, "duracion:", reto.duracion);
-    setRetoActual({
-      id:            reto.id,
-      title:         reto.title         || "",
-      stars:         reto.stars         || 1,
-      idx,
-      desc:          reto.desc          || "",
-      duracion:      reto.duracion      || null,
-      tipo_duracion: reto.tipo_duracion || "horas",
+    if (retoActual || retoAutoDetectado.current) return;
+    if (!misionData?.retos?.length || !setRetoActual || !user?.id || !misionId) return;
+
+    retoAutoDetectado.current = true; // evitar loop
+    const estudianteId = user.id;
+    const misionIdStr  = String(misionId);
+
+    console.log("[NEXUS TIMER] 🔍 Buscando timer activo en BD para restaurar reto...");
+
+    // Consultar timer para cada reto en paralelo y tomar el primero activo
+    Promise.all(
+      misionData.retos.map(reto =>
+        fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${String(reto.id)}&mision_id=${misionIdStr}`)
+          .then(r => r.json())
+          .then(data => ({ reto, timer: data?.timer || null }))
+          .catch(() => ({ reto, timer: null }))
+      )
+    ).then(resultados => {
+      // Buscar el primer reto con timer activo (inicio_ts != null)
+      const activo = resultados.find(r => r.timer !== null);
+      if (!activo) {
+        console.log("[NEXUS TIMER] 🔍 Sin timer activo en BD — el reto se activará cuando el estudiante elija uno");
+        return;
+      }
+      const { reto } = activo;
+      const idx = misionData.retos.indexOf(reto);
+      console.log("[NEXUS TIMER] ✅ Reto restaurado desde timer BD →", reto.id, reto.title, "duracion:", reto.duracion);
+      setRetoActual({
+        id:            reto.id,
+        title:         reto.title         || "",
+        stars:         reto.stars         || 1,
+        idx,
+        desc:          reto.desc          || "",
+        duracion:      reto.duracion      || null,
+        tipo_duracion: reto.tipo_duracion || "horas",
+      });
     });
-  }, [misionData, msgs]); // eslint-disable-line
+  }, [misionData]); // eslint-disable-line
 
   // ── Prompt con contador de interacciones actualizado ──────────
   const buildCurrentPrompt = (count) => {
