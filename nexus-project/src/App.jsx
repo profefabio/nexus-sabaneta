@@ -1972,6 +1972,13 @@ function StudentView({ user, onLogout }) {
     const necesitaEnriquecer = !retoActual.title ||
       retoActual.duracion === null ||
       retoActual.duracion === undefined;
+    console.log("[NEXUS ENRICH]", {
+      necesitaEnriquecer, 
+      retoActualId: retoActual?.id,
+      retoActualTitle: retoActual?.title,
+      retoActualDuracion: retoActual?.duracion,
+      misionDataRetos: missionData?.retos?.map(r=>({id:r.id,duracion:r.duracion}))
+    });
     if (necesitaEnriquecer) {
       const retoCompleto = missionData.retos.find(r =>
         String(r.id) === String(retoActual.id)
@@ -2474,12 +2481,26 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     // FIX: si duracion no está en retoActual (sesión restaurada), buscar en misionData
     const retoEnMision = misionData?.retos?.find(r => String(r.id) === String(retoActual?.id));
     const dur = retoActual?.duracion || retoEnMision?.duracion;
-    if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) return;
+    console.log("[NEXUS TIMER]", {
+      retoActualId: retoActual?.id,
+      retoActualDuracion: retoActual?.duracion,
+      retoEnMisionDuracion: retoEnMision?.duracion,
+      durFinal: dur,
+      misionDataRetos: misionData?.retos?.map(r => ({id:r.id, duracion:r.duracion})),
+    });
+    if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) {
+      console.log("[NEXUS TIMER] ABORTANDO — dur inválida:", dur);
+      return;
+    }
 
     const tipoDuracion = retoActual?.tipo_duracion || retoEnMision?.tipo_duracion || "horas";
     const esDias  = tipoDuracion === "dias";
     const durSeg  = esDias ? Number(dur) * 86400 : Number(dur) * 3600;
-    if (!durSeg || durSeg <= 0) return;
+    if (!durSeg || durSeg <= 0) {
+      console.log("[NEXUS TIMER] ABORTANDO — durSeg inválida:", durSeg);
+      return;
+    }
+    console.log("[NEXUS TIMER] INICIANDO countdown — durSeg:", durSeg, "duracion:", dur, tipoDuracion);
 
     const estudianteId = user?.id || "anon";
     const retoId       = String(retoActual.id);
