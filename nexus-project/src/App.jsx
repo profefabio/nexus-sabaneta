@@ -2519,6 +2519,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const tiempoRestanteRef  = useRef(null);
   // Ref para evitar re-detectar el reto automáticamente más de una vez por sesión
   const retoAutoDetectado  = useRef(false);
+  // Ref para evitar que el timer se reinicie si ya está corriendo para el mismo reto
+  const timerRetoActivoRef = useRef(null); // ID del reto cuyo timer ya está corriendo
 
   // ── Timer del reto ─────────────────────────────────────────────
   // PAUSA/RESUME: cuando el usuario sale de la app (visibilitychange / pagehide)
@@ -2526,9 +2528,16 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   // cambiar el schema: inicio_ts < 0 = pausado, abs(inicio_ts)/1000 = seg restantes).
   // Al volver, se detecta el valor negativo y se reanuda exactamente donde quedó.
   useEffect(() => {
+    // ── Guardia: no reiniciar si ya corre el timer para este mismo reto ──
+    const retoIdActual = String(retoActual?.id ?? "");
+    if (timerRetoActivoRef.current === retoIdActual && retoIdActual !== "" && tiempoRestante !== null && tiempoRestante > 0) {
+      return; // ya está corriendo, no interrumpir
+    }
+
     clearInterval(countdownRef.current);
     setTiempoAlerta(false);
     setTiempoRestante(null);
+    timerRetoActivoRef.current = null;
 
     // FIX: si duracion no está en retoActual (sesión restaurada), buscar en misionData
     const retoEnMision = misionData?.retos?.find(r => String(r.id) === String(retoActual?.id));
@@ -2553,7 +2562,9 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     }
     console.log("[NEXUS TIMER] INICIANDO countdown — durSeg:", durSeg, "duracion:", dur, tipoDuracion);
 
-    const estudianteId = user?.id || "anon";
+    // Para compañeros: el timer se guarda bajo el ID del líder
+    const esCompanero  = equipo?.liderId && String(equipo.liderId) !== String(user?.id);
+    const estudianteId = esCompanero ? String(equipo.liderId) : (user?.id || "anon");
     const retoId       = String(retoActual.id);
     const misionIdStr  = String(misionId || "");
 
@@ -2585,6 +2596,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       const initialRestante = Math.max(0, durSeg - Math.floor((Date.now() - inicio) / 1000));
       setTiempoRestante(initialRestante);
       tiempoRestanteRef.current = initialRestante;
+      timerRetoActivoRef.current = String(retoActual?.id ?? ""); // marcar reto activo
       if (initialRestante <= 0) return;
 
       countdownRef.current = setInterval(() => {
@@ -2681,7 +2693,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     };
   // retoActual?.duracion: necesario porque al restaurar sesión el reto llega
   // primero sin duracion y luego se enriquece → sin esta dep el effect no re-corre
-  }, [retoActual?.id, retoActual?.duracion, misionData]); // eslint-disable-line
+  }, [retoActual?.id, retoActual?.duracion, misionData?.id]); // eslint-disable-line
 
   // Formatear tiempo restante para mostrar en UI
   const formatTiempo = (seg) => {
@@ -2706,7 +2718,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     setShowPasteWarning(false);
     setHistorialPrevio([]);
     setShowHistPrevio(false);
-    retoAutoDetectado.current = false; // resetear al cambiar de misión
+    retoAutoDetectado.current = false;  // resetear al cambiar de misión
+    timerRetoActivoRef.current = null;  // forzar reinicio del timer al cambiar misión
     setMsgs([{ role:"assistant", content: welcomeMsg }]);
 
     // Cargar XP real desde Supabase para esta misión
@@ -2778,7 +2791,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     } else {
       setHistorialPrevio([]);
     }
-  }, [retoActual?.id, misionId]); // eslint-disable-line
+  }, [retoActual?.id, misionId, equipo?.liderId]); // eslint-disable-line — equipo?.liderId para re-cargar cuando el líder sea conocido
 
   useEffect(() => { endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
 
