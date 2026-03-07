@@ -2467,6 +2467,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   // Ref siempre actualizado con el valor actual de tiempoRestante
   // (necesario para event listeners de pausa/resume sin stale closure)
   const tiempoRestanteRef  = useRef(null);
+  // Ref para evitar re-detectar el reto automáticamente más de una vez por sesión
+  const retoAutoDetectado  = useRef(false);
 
   // ── Timer del reto ─────────────────────────────────────────────
   // PAUSA/RESUME: cuando el usuario sale de la app (visibilitychange / pagehide)
@@ -2654,6 +2656,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     setShowPasteWarning(false);
     setHistorialPrevio([]);
     setShowHistPrevio(false);
+    retoAutoDetectado.current = false; // resetear al cambiar de misión
     setMsgs([{ role:"assistant", content: welcomeMsg }]);
 
     // Cargar XP real desde Supabase para esta misión
@@ -2731,6 +2734,32 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   // Mantener ref sincronizado con el estado actual (para event listeners de visibilidad)
   useEffect(() => { tiempoRestanteRef.current = tiempoRestante; }, [tiempoRestante]);
+
+  // ── Auto-detectar reto activo desde historial de mensajes ─────────────
+  // Cuando la sesión se restaura, retoActual llega null aunque el estudiante
+  // ya estaba trabajando en un reto. Este effect lo detecta desde el reto_id
+  // guardado en los mensajes del historial, una sola vez por sesión.
+  useEffect(() => {
+    if (retoActual || retoAutoDetectado.current) return;   // ya está seteado
+    if (!misionData?.retos?.length || !setRetoActual) return;
+    // Buscar el reto_id más reciente en los mensajes cargados
+    const ultimoRetoId = [...msgs].reverse().find(m => m.retoId)?.retoId;
+    if (!ultimoRetoId) return;
+    const reto = misionData.retos.find(r => String(r.id) === String(ultimoRetoId));
+    if (!reto) return;
+    const idx = misionData.retos.indexOf(reto);
+    retoAutoDetectado.current = true;
+    console.log("[NEXUS TIMER] 🔍 Auto-detectando reto desde historial →", reto.id, reto.title, "duracion:", reto.duracion);
+    setRetoActual({
+      id:            reto.id,
+      title:         reto.title         || "",
+      stars:         reto.stars         || 1,
+      idx,
+      desc:          reto.desc          || "",
+      duracion:      reto.duracion      || null,
+      tipo_duracion: reto.tipo_duracion || "horas",
+    });
+  }, [misionData, msgs]); // eslint-disable-line
 
   // ── Prompt con contador de interacciones actualizado ──────────
   const buildCurrentPrompt = (count) => {
