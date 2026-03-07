@@ -2481,15 +2481,14 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     // FIX: si duracion no está en retoActual (sesión restaurada), buscar en misionData
     const retoEnMision = misionData?.retos?.find(r => String(r.id) === String(retoActual?.id));
     const dur = retoActual?.duracion || retoEnMision?.duracion;
-    console.log("[NEXUS TIMER]", {
-      retoActualId: retoActual?.id,
-      retoActualDuracion: retoActual?.duracion,
-      retoEnMisionDuracion: retoEnMision?.duracion,
-      durFinal: dur,
-      misionDataRetos: misionData?.retos?.map(r => ({id:r.id, duracion:r.duracion})),
-    });
+    console.log("[NEXUS TIMER] retoActual.id =", retoActual?.id);
+    console.log("[NEXUS TIMER] retoActual.duracion =", JSON.stringify(retoActual?.duracion));
+    console.log("[NEXUS TIMER] misionData =", misionData ? "CARGADO" : "NULL");
+    console.log("[NEXUS TIMER] misionData.retos =", JSON.stringify(misionData?.retos?.map(r => ({id:r.id, dur:r.duracion, tipo:r.tipo_duracion}))));
+    console.log("[NEXUS TIMER] retoEnMision =", JSON.stringify(retoEnMision ? {id:retoEnMision.id, dur:retoEnMision.duracion} : null));
+    console.log("[NEXUS TIMER] dur final =", JSON.stringify(dur));
     if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) {
-      console.log("[NEXUS TIMER] ABORTANDO — dur inválida:", dur);
+      console.log("[NEXUS TIMER] ❌ ABORTANDO — dur inválida:", JSON.stringify(dur));
       return;
     }
 
