@@ -1920,6 +1920,29 @@ function StudentView({ user, onLogout }) {
   // Al cambiar misión, resetear reto
   useEffect(() => { setRetoActual(null); }, [mission]);
 
+  // Enriquecer retoActual cuando misionData cargue (para compañeros de equipo que se unen)
+  useEffect(() => {
+    if (!retoActual || !missionData?.retos?.length) return;
+    // Si el retoActual solo tiene id (viene de la restauración de equipo), enriquecerlo
+    if (!retoActual.title) {
+      const retoCompleto = missionData.retos.find(r =>
+        String(r.id) === String(retoActual.id)
+      );
+      if (retoCompleto) {
+        const idx = missionData.retos.indexOf(retoCompleto);
+        setRetoActual({
+          id:           retoCompleto.id,
+          title:        retoCompleto.title  || "",
+          stars:        retoCompleto.stars  || 1,
+          idx,
+          desc:         retoCompleto.desc   || "",
+          duracion:     retoCompleto.duracion     || null,
+          tipo_duracion: retoCompleto.tipo_duracion || "horas",
+        });
+      }
+    }
+  }, [missionData, retoActual?.id]); // eslint-disable-line
+
   // Cargar misiones del docente asignado y filtrar por grado del estudiante
   useEffect(()=>{
     getMisiones(user.docente_id||"","student").then(m=>{
@@ -1932,6 +1955,7 @@ function StudentView({ user, onLogout }) {
   },[user.docente_id, user.grade]);
 
   // ── Restaurar equipo activo al volver a iniciar sesión ────────
+  // Si el estudiante ya tenía equipo y misión → saltar directo a la conversación
   useEffect(()=>{
     if (!user?.id) return;
     fetch(`/api/companeros?restaurar=1&estudiante_id=${user.id}`)
@@ -1939,6 +1963,23 @@ function StudentView({ user, onLogout }) {
       .then(d => {
         if (d.equipo && d.equipo.nombre) {
           setEquipo(d.equipo);
+          // Restaurar misión activa del equipo → entra directo al chat
+          if (d.equipo.misionId) {
+            setMission(d.equipo.misionId);
+            setTab("chat"); // asegurar que el tab activo sea el chat
+          }
+          // Restaurar reto si estaba trabajando en uno específico
+          if (d.equipo.retoActual) {
+            setRetoActual({
+              id:           d.equipo.retoActual.id,
+              title:        d.equipo.retoActual.title   || "",
+              stars:        d.equipo.retoActual.stars    || 1,
+              idx:          d.equipo.retoActual.idx      || 0,
+              desc:         d.equipo.retoActual.desc     || "",
+              duracion:     d.equipo.retoActual.duracion || null,
+              tipo_duracion: d.equipo.retoActual.tipo_duracion || "horas",
+            });
+          }
         }
       })
       .catch(() => {});
