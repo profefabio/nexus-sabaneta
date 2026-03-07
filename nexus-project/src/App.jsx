@@ -1966,9 +1966,13 @@ function StudentView({ user, onLogout }) {
 
   // Enriquecer retoActual cuando misionData cargue (para compañeros de equipo que se unen)
   // IMPORTANTE: debe ir DESPUÉS de missionData para evitar TDZ
+  // FIX: corre si falta title O si falta duracion (sesión restaurada sin duracion)
   useEffect(() => {
     if (!retoActual || !missionData?.retos?.length) return;
-    if (!retoActual.title) {
+    const necesitaEnriquecer = !retoActual.title ||
+      retoActual.duracion === null ||
+      retoActual.duracion === undefined;
+    if (necesitaEnriquecer) {
       const retoCompleto = missionData.retos.find(r =>
         String(r.id) === String(retoActual.id)
       );
@@ -2467,10 +2471,13 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     setTiempoAlerta(false);
     setTiempoRestante(null);
 
-    const dur = retoActual?.duracion;
+    // FIX: si duracion no está en retoActual (sesión restaurada), buscar en misionData
+    const retoEnMision = misionData?.retos?.find(r => String(r.id) === String(retoActual?.id));
+    const dur = retoActual?.duracion || retoEnMision?.duracion;
     if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) return;
 
-    const esDias  = retoActual.tipo_duracion === "dias";
+    const tipoDuracion = retoActual?.tipo_duracion || retoEnMision?.tipo_duracion || "horas";
+    const esDias  = tipoDuracion === "dias";
     const durSeg  = esDias ? Number(dur) * 86400 : Number(dur) * 3600;
     if (!durSeg || durSeg <= 0) return;
 
@@ -2602,7 +2609,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     };
   // retoActual?.duracion: necesario porque al restaurar sesión el reto llega
   // primero sin duracion y luego se enriquece → sin esta dep el effect no re-corre
-  }, [retoActual?.id, retoActual?.duracion]); // eslint-disable-line
+  }, [retoActual?.id, retoActual?.duracion, misionData]); // eslint-disable-line
 
   // Formatear tiempo restante para mostrar en UI
   const formatTiempo = (seg) => {
