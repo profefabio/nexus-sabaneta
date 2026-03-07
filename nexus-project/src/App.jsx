@@ -1920,28 +1920,6 @@ function StudentView({ user, onLogout }) {
   // Al cambiar misión, resetear reto
   useEffect(() => { setRetoActual(null); }, [mission]);
 
-  // Enriquecer retoActual cuando misionData cargue (para compañeros de equipo que se unen)
-  useEffect(() => {
-    if (!retoActual || !missionData?.retos?.length) return;
-    // Si el retoActual solo tiene id (viene de la restauración de equipo), enriquecerlo
-    if (!retoActual.title) {
-      const retoCompleto = missionData.retos.find(r =>
-        String(r.id) === String(retoActual.id)
-      );
-      if (retoCompleto) {
-        const idx = missionData.retos.indexOf(retoCompleto);
-        setRetoActual({
-          id:           retoCompleto.id,
-          title:        retoCompleto.title  || "",
-          stars:        retoCompleto.stars  || 1,
-          idx,
-          desc:         retoCompleto.desc   || "",
-          duracion:     retoCompleto.duracion     || null,
-          tipo_duracion: retoCompleto.tipo_duracion || "horas",
-        });
-      }
-    }
-  }, [missionData, retoActual?.id]); // eslint-disable-line
 
   // Cargar misiones del docente asignado y filtrar por grado del estudiante
   useEffect(()=>{
@@ -1985,6 +1963,29 @@ function StudentView({ user, onLogout }) {
       .catch(() => {});
   }, [user?.id]);
   const missionData = misiones.find(m=>m.id===mission);
+
+  // Enriquecer retoActual cuando misionData cargue (para compañeros de equipo que se unen)
+  // IMPORTANTE: debe ir DESPUÉS de missionData para evitar TDZ
+  useEffect(() => {
+    if (!retoActual || !missionData?.retos?.length) return;
+    if (!retoActual.title) {
+      const retoCompleto = missionData.retos.find(r =>
+        String(r.id) === String(retoActual.id)
+      );
+      if (retoCompleto) {
+        const retoIdx = missionData.retos.indexOf(retoCompleto);
+        setRetoActual({
+          id:            retoCompleto.id,
+          title:         retoCompleto.title         || "",
+          stars:         retoCompleto.stars         || 1,
+          idx:           retoIdx,
+          desc:          retoCompleto.desc          || "",
+          duracion:      retoCompleto.duracion      || null,
+          tipo_duracion: retoCompleto.tipo_duracion || "horas",
+        });
+      }
+    }
+  }, [missionData, retoActual?.id]); // eslint-disable-line
 
   return (
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
