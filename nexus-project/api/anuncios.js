@@ -80,7 +80,7 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ success: true, anuncio: data });
     } catch (err) {
       // Si la tabla no existe, devolver error útil
-      if (err.message && err.message.includes("does not exist")) {
+      if (err.message && (err.message.includes("does not exist") || err.message.includes("schema cache") || err.message.includes("nexus_anuncios"))) {
         return res.status(200).json({
           success: false,
           error: "tabla_no_existe",
