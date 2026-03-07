@@ -33,7 +33,7 @@ const sanitizeChat = (text) => {
 };
 
 // ─── API helpers ──────────────────────────────────────────────
-const callNexus = async (messages, system, _retries=1) => {
+const callNexus = async (messages, system, _retries=3) => {
   try {
     const res = await fetch("/api/chat", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -46,16 +46,22 @@ const callNexus = async (messages, system, _retries=1) => {
 
     const data = await res.json().catch(() => ({ error: "Respuesta inválida del servidor." }));
     if (data.error) {
-      // Reintentar automáticamente una vez si Anthropic está sobrecargado
-      const esRecuperable = /sobrecargado|529|503|tiempo|timeout/i.test(data.error);
+      // Reintentar automáticamente hasta 3 veces si Anthropic está sobrecargado
+      const esRecuperable = /sobrecargado|529|503|tiempo|timeout|overloaded/i.test(data.error);
       if (_retries > 0 && esRecuperable) {
-        await new Promise(r => setTimeout(r, 3500));
-        return callNexus(messages, system, 0);
+        // Espera progresiva: 2s, 4s, 6s según intentos restantes
+        const delay = (4 - _retries) * 2000;
+        await new Promise(r => setTimeout(r, delay));
+        return callNexus(messages, system, _retries - 1);
       }
       return data.error;
     }
     return data.content?.[0]?.text || "⚠️ NEXUS no pudo generar una respuesta. Intenta de nuevo.";
   } catch (err) {
+    if (_retries > 0) {
+      await new Promise(r => setTimeout(r, 2000));
+      return callNexus(messages, system, _retries - 1);
+    }
     return "⚠️ Sin conexión con NEXUS. Verifica tu internet e intenta de nuevo.";
   }
 };
