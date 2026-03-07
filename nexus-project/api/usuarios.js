@@ -71,6 +71,50 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ success: true, estudiantesAfectados: estIds.length });
     }
 
+    // ── Reiniciar progreso de un Grado (y opcionalmente Grupo) ─
+    if (accion === "limpiar_progreso_grado") {
+      const { docente_id, grado, grupo } = req.body;
+      if (!docente_id || !grado)
+        return res.status(200).json({ error: "Faltan docente_id o grado" });
+
+      // Estudiantes del docente con ese grado/grupo
+      let estQuery = supabase.from("estudiantes").select("id, grado, grupo")
+        .eq("docente_id", String(docente_id))
+        .eq("grado", String(grado));
+      if (grupo) estQuery = estQuery.eq("grupo", String(grupo));
+
+      const { data: estudiantes } = await estQuery.limit(3000);
+      const estIds = (estudiantes || []).map(e => String(e.id));
+
+      if (estIds.length === 0)
+        return res.status(200).json({ success: true, estudiantesAfectados: 0 });
+
+      // Misiones del docente
+      const { data: misiones } = await supabase
+        .from("nexus_misiones").select("id").eq("docente_id", String(docente_id));
+      const misionIds = (misiones || []).map(m => m.id);
+
+      // Borrar progreso de esos estudiantes
+      await supabase.from("nexus_progreso")
+        .delete().in("estudiante_id", estIds);
+
+      // Borrar chats de esos estudiantes (en misiones del docente y libres)
+      if (misionIds.length > 0) {
+        await supabase.from("nexus_chats")
+          .delete().in("estudiante_id", estIds).in("mision_id", misionIds);
+      }
+      await supabase.from("nexus_chats")
+        .delete().in("estudiante_id", estIds).is("mision_id", null);
+
+      // Borrar timers de esos estudiantes
+      try {
+        await supabase.from("nexus_timers")
+          .delete().in("estudiante_id", estIds);
+      } catch(e) {} // la tabla puede no existir aún
+
+      return res.status(200).json({ success: true, estudiantesAfectados: estIds.length });
+    }
+
     // ── Eliminar TODOS los equipos (chats + progreso) ──────────
     // Elimina físicamente los chats con equipo_nombre != null
     // y el progreso asociado. Reset total para empezar de cero.
