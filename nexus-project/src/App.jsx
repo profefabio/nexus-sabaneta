@@ -2305,64 +2305,81 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const [tiempoInicio, setTiempoInicio]       = useState(null); // timestamp inicio
   const countdownRef = useRef(null);
 
-  // Iniciar contador cuando cambia retoActual (si tiene tiempo definido)
-  // PERSISTENCIA: guarda inicio en localStorage para que sobreviva recargas
+  // ── Cargar timer desde Supabase al cambiar de reto ───────────
+  // PERSISTENCIA: el tiempo de inicio se guarda en nexus_timers (BD)
+  // Así el estudiante puede cambiar de dispositivo y el tiempo sigue corriendo
   useEffect(() => {
     clearInterval(countdownRef.current);
     setTiempoAlerta(false);
+    setTiempoRestante(null);
+
     const dur = retoActual?.duracion;
-    if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) {
-      setTiempoRestante(null);
-      return;
-    }
+    if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) return;
 
     const esDias = retoActual.tipo_duracion === "dias";
-    const durSeg = esDias
-      ? Number(dur) * 86400
-      : Number(dur) * 3600;
+    const durSeg = esDias ? Number(dur) * 86400 : Number(dur) * 3600;
+    if (!durSeg || durSeg <= 0) return;
 
-    if (!durSeg || durSeg <= 0) { setTiempoRestante(null); return; }
+    const estudianteId = user?.id || "anon";
+    const retoId       = String(retoActual.id);
+    const misionId     = String(misionId || "");
 
-    // Clave única por estudiante + reto para persistir en localStorage
-    const storageKey = `nexus_timer_${user?.id||"anon"}_${retoActual.id}`;
+    // Función que arranca el contador desde un timestamp dado
+    const startCountdown = (inicio) => {
+      setTiempoInicio(inicio);
+      const initialElapsed = Math.floor((Date.now() - inicio) / 1000);
+      const initialRestante = Math.max(0, durSeg - initialElapsed);
+      setTiempoRestante(initialRestante);
+      if (initialRestante <= 0) return; // ya expiró
 
-    // Intentar recuperar timer guardado (para cuando el estudiante vuelve)
-    let inicio;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const { ts, dur: savedDur } = JSON.parse(saved);
-        // Solo restaurar si es el mismo reto y la duración coincide
-        if (savedDur === durSeg && ts > 0) {
-          const elapsed = Math.floor((Date.now() - ts) / 1000);
-          // Solo restaurar si el timer no ha expirado aún
+      countdownRef.current = setInterval(() => {
+        const elapsed   = Math.floor((Date.now() - inicio) / 1000);
+        const restante  = Math.max(0, durSeg - elapsed);
+        setTiempoRestante(restante);
+        setTiempoAlerta(restante > 0 && restante <= Math.min(600, durSeg * 0.2));
+        if (restante <= 0) {
+          clearInterval(countdownRef.current);
+          // Borrar timer de la BD al expirar
+          fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionId}`,
+            { method: "DELETE" }).catch(() => {});
+        }
+      }, 1000);
+    };
+
+    // Intentar recuperar timer existente desde la BD
+    fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionId}`)
+      .then(r => r.json())
+      .then(data => {
+        const saved = data?.timer;
+        if (saved && saved.inicio_ts > 0 && saved.duracion_seg === durSeg) {
+          // Timer guardado válido: calcular tiempo ya transcurrido
+          const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
           if (elapsed < durSeg) {
-            inicio = ts;
+            // Aún queda tiempo — restaurar desde el inicio guardado
+            startCountdown(saved.inicio_ts);
+            return;
+          } else {
+            // Ya expiró mientras estaba fuera
+            setTiempoRestante(0);
+            fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionId}`,
+              { method: "DELETE" }).catch(() => {});
+            return;
           }
         }
-      }
-    } catch(e) {}
-
-    // Si no hay timer guardado válido, empezar uno nuevo
-    if (!inicio) {
-      inicio = Date.now();
-      try { localStorage.setItem(storageKey, JSON.stringify({ ts: inicio, dur: durSeg })); } catch(e) {}
-    }
-
-    setTiempoInicio(inicio);
-    const initialElapsed = Math.floor((Date.now() - inicio) / 1000);
-    setTiempoRestante(Math.max(0, durSeg - initialElapsed));
-
-    countdownRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - inicio) / 1000);
-      const restante = Math.max(0, durSeg - elapsed);
-      setTiempoRestante(restante);
-      setTiempoAlerta(restante > 0 && (restante <= Math.min(600, durSeg * 0.2)));
-      if (restante <= 0) {
-        clearInterval(countdownRef.current);
-        try { localStorage.removeItem(storageKey); } catch(e) {} // limpiar al expirar
-      }
-    }, 1000);
+        // No hay timer guardado → crear uno nuevo en la BD
+        const inicio = Date.now();
+        fetch("/api/timer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
+            mision_id: misionId, inicio_ts: inicio, duracion_seg: durSeg }),
+        }).catch(() => {});
+        startCountdown(inicio);
+      })
+      .catch(() => {
+        // Sin conexión: iniciar timer local sin persistir
+        startCountdown(Date.now());
+      });
 
     return () => clearInterval(countdownRef.current);
   }, [retoActual?.id]); // eslint-disable-line
