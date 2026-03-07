@@ -78,7 +78,7 @@ const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
 // Guardar un mensaje en el historial de chat
 const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equipoNombre=null, retoId=null) => {
   try {
-    await fetch("/api/savechat", {
+    const r = await fetch("/api/savechat", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         estudiante_id: user.id,
@@ -91,7 +91,9 @@ const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equip
         equipo_nombre: equipoNombre||null,
       }),
     });
-  } catch(_) {}
+    const d = await r.json();
+    if (d.error) console.warn("[NEXUS savechat error]", d.error);
+  } catch(e) { console.warn("[NEXUS savechat fetch error]", e.message); }
 };
 
 // Cargar historial de chat (por misión y opcionalmente por reto)
@@ -490,7 +492,18 @@ function DashboardPanel({ user, misiones }) {
   const [filtroGrado, setFiltroGrado] = useState("todos");
   const [filtroGrupo, setFiltroGrupo] = useState("todos");
   const [ordenAZ, setOrdenAZ] = useState(false);
+  const [dbStatus, setDbStatus] = useState(null); // null=checking, true=ok, false=missing tables
   const isMobile = useIsMobile();
+
+  // Verificar estado de tablas DB al cargar
+  useEffect(() => {
+    fetch(`/api/savechat?estudiante_id=__healthcheck__&mision_id=__test__`)
+      .then(r => r.json())
+      .then(d => {
+        // Si devuelve msgs array (vacío) = tabla existe; si error = tabla falta
+        setDbStatus(Array.isArray(d.msgs));
+      }).catch(() => setDbStatus(false));
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -510,6 +523,42 @@ function DashboardPanel({ user, misiones }) {
 
   return (
     <Page title={user.role==="admin"?"Panel de Administración":"📊 Mi Panel Docente"} desc={`Bienvenido, ${user.name}.`}>
+      {/* ⚠️ Alerta tablas DB faltantes */}
+      {dbStatus === false && (
+        <div style={{ background:"#ef444415", border:"2px solid #ef444455", borderRadius:14, padding:16, marginBottom:18 }}>
+          <div style={{ fontSize:14, fontWeight:800, color:"#ef4444", marginBottom:8 }}>
+            ⚠️ Tablas NEXUS no encontradas en Supabase
+          </div>
+          <div style={{ fontSize:12, color:"#fca5a5", marginBottom:12, lineHeight:1.7 }}>
+            Los mensajes y el progreso NO se están guardando. Ejecuta este SQL en Supabase → SQL Editor:
+          </div>
+          <pre style={{ background:"#0a1628", border:"1px solid #1a3050", borderRadius:10, padding:"12px 14px", fontSize:10, color:"#10d98a", overflowX:"auto", lineHeight:1.7, whiteSpace:"pre-wrap" }}>
+{`CREATE TABLE IF NOT EXISTS nexus_chats (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  estudiante_id TEXT NOT NULL,
+  nombre_estudiante TEXT,
+  mision_id TEXT, mision_title TEXT, reto_id TEXT,
+  role TEXT CHECK (role IN ('user','assistant')),
+  content TEXT, xp_at_time INTEGER DEFAULT 0,
+  equipo_nombre TEXT, created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS nexus_progreso (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  estudiante_id TEXT NOT NULL, nombre_estudiante TEXT,
+  grado TEXT, grupo TEXT, mision_id TEXT,
+  xp_total INTEGER DEFAULT 0, nivel INTEGER DEFAULT 1,
+  nota NUMERIC(3,1), nota_definitiva NUMERIC(3,1),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS estudiantes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  nombres TEXT, apellidos TEXT, grado TEXT, grupo TEXT,
+  docente_id TEXT, fecha_registro TIMESTAMPTZ DEFAULT now()
+);`}
+          </pre>
+          <div style={{ fontSize:11, color:"#f97316", marginTop:8 }}>Después recarga la página ✅</div>
+        </div>
+      )}
       {loading && <div style={{ color:C.muted, fontSize:13, marginBottom:16 }}>⏳ Cargando estadísticas...</div>}
       <div style={{ display:"grid", gridTemplateColumns: isMobile?"1fr 1fr":"repeat(4,1fr)", gap:10, marginBottom:20 }}>
         {[["🎓","Estudiantes",stats?.resumen?.totalEstudiantes??0,C.accent],
@@ -1793,28 +1842,59 @@ function StudentView({ user, onLogout }) {
         <div style={{ flex:1, minHeight:0, display:"flex", flexDirection:"column", overflow:"hidden", height:"100%" }}>
           <div style={{ padding: isMobile?"6px 12px 0":"14px 22px 0", flexShrink:0 }}>
             {!isMobile && <h1 style={{ ...ptitle, fontSize:22, marginBottom:8 }}>NEXUS · Tu compañero de retos</h1>}
-            <div style={{ display:"flex", gap:6, marginBottom: isMobile?6:8, flexWrap:"wrap" }}>
-              {mission&&<div style={{ display:"flex", alignItems:"center", gap:6, background:C.card, border:`1px solid ${missionData?.color}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, flex:1, minWidth:0 }}>
-                <span style={{flexShrink:0}}>{missionData?.icon}</span>
-                <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>Misión: <strong>{missionData?.title}</strong></span>
-                <button style={{ marginLeft:4, background:"none", border:"none", color:C.muted, cursor:"pointer", flexShrink:0, fontSize:14, lineHeight:1 }} onClick={()=>setMission(null)}>✕</button>
-              </div>}
-              {equipo&&<div style={{ display:"flex", alignItems:"center", gap:5, background:`${C.accent2}15`, border:`1px solid ${C.accent2}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, color:C.accent2, cursor:"pointer", flexShrink:0 }} onClick={()=>setShowEquipo(true)}>
-                👥 {isMobile?equipo.nombre:`${equipo.nombre} (${equipo.integrantes.length+1})`}
-              </div>}
-              {!mission&&<div style={{ display:"flex", alignItems:"center", gap:4, background:`${C.accent3}15`, border:`1px solid ${C.accent3}44`, borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11, color:C.accent3 }}>💬 {isMobile?"Libre":"Modo libre"}</div>}
-              {/* 🔔 Campanita de anuncios */}
+            {/* Fila 1: misión + campana (siempre en una sola línea) */}
+            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:isMobile?4:8 }}>
+              {mission ? (
+                <div style={{ display:"flex", alignItems:"center", gap:6, background:C.card,
+                  border:`1px solid ${missionData?.color}44`, borderRadius:10,
+                  padding:isMobile?"4px 8px":"6px 10px", fontSize:isMobile?10:11,
+                  flex:1, minWidth:0, overflow:"hidden" }}>
+                  <span style={{flexShrink:0}}>{missionData?.icon}</span>
+                  <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", flex:1 }}>
+                    Misión: <strong>{missionData?.title}</strong>
+                  </span>
+                  <button style={{ marginLeft:4, background:"none", border:"none", color:C.muted,
+                    cursor:"pointer", flexShrink:0, fontSize:14, lineHeight:1 }}
+                    onClick={()=>setMission(null)}>✕</button>
+                </div>
+              ) : (
+                <div style={{ display:"flex", alignItems:"center", gap:4,
+                  background:`${C.accent3}15`, border:`1px solid ${C.accent3}44`,
+                  borderRadius:10, padding:isMobile?"4px 8px":"6px 10px",
+                  fontSize:isMobile?10:11, color:C.accent3, flex:1 }}>
+                  💬 {isMobile?"Modo libre":"Modo libre — elige una misión"}
+                </div>
+              )}
+              {/* 🔔 Campanita — siempre visible */}
               <button onClick={()=>{setShowAnuncios(true);marcarTodosLeidos();}}
-                style={{ position:"relative", background:noLeidos>0?`${C.accent3}20`:"none",
-                  border:noLeidos>0?`1px solid ${C.accent3}44`:`1px solid ${C.border}`,
-                  borderRadius:10, padding:isMobile?"4px 8px":"6px 10px", cursor:"pointer",
-                  display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
-                <span style={{ fontSize:isMobile?14:15 }}>🔔</span>
-                {noLeidos>0&&<span style={{ background:C.accent3, color:"#0d1526", borderRadius:"50%",
-                  fontSize:9, fontWeight:900, width:16, height:16, display:"flex",
-                  alignItems:"center", justifyContent:"center", marginLeft:2 }}>{noLeidos}</span>}
+                title="Anuncios del docente"
+                style={{ position:"relative", flexShrink:0,
+                  background:noLeidos>0?`${C.accent3}20`:C.surface,
+                  border:`1px solid ${noLeidos>0?C.accent3:C.border}`,
+                  borderRadius:10, padding:isMobile?"5px 8px":"6px 10px",
+                  cursor:"pointer", display:"flex", alignItems:"center", gap:3 }}>
+                <span style={{ fontSize:16 }}>🔔</span>
+                {noLeidos>0&&(
+                  <span style={{ background:C.accent3, color:"#0d1526", borderRadius:"50%",
+                    fontSize:9, fontWeight:900, minWidth:16, height:16, display:"flex",
+                    alignItems:"center", justifyContent:"center", padding:"0 2px" }}>
+                    {noLeidos}
+                  </span>
+                )}
               </button>
             </div>
+            {/* Fila 2 (solo si hay equipo): badge equipo */}
+            {equipo&&(
+              <div style={{ display:"flex", alignItems:"center", marginBottom:isMobile?4:6 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:5,
+                  background:`${C.accent2}15`, border:`1px solid ${C.accent2}44`,
+                  borderRadius:10, padding:isMobile?"4px 10px":"6px 10px",
+                  fontSize:isMobile?10:11, color:C.accent2, cursor:"pointer" }}
+                  onClick={()=>setShowEquipo(true)}>
+                  👥 {equipo.nombre} ({equipo.integrantes.length+1})
+                </div>
+              </div>
+            )}
           </div>
           <div style={{ flex:1, overflow:"hidden", minHeight:0, padding: isMobile?"0":"0 22px 22px", display:"flex", flexDirection:"column" }}>
             <NexusChat
@@ -2483,13 +2563,13 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     <div style={{ display:"flex", flexDirection:"column", height:compact?400:undefined, flex:compact?undefined:1, minHeight:compact?undefined:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:isMobile?0:16, overflow:"hidden", position:"relative" }}>
 
       {/* ── Header: nivel XP + nota ── */}
-      <div style={{ display:"flex", alignItems:"center", gap:8, padding:isMobile?"5px 10px":"7px 14px", background:C.surface, borderBottom:`1px solid ${C.border}`, position:"relative", flexShrink:0 }}>
-        <span style={{ fontSize:9, fontFamily:"'Orbitron',monospace", color:C.accent, fontWeight:700 }}>NVL {lv}</span>
-        <div style={{ flex:1, height:4, background:C.border, borderRadius:2 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:isMobile?6:8, padding:isMobile?"6px 10px":"7px 14px", background:C.surface, borderBottom:`1px solid ${C.border}`, position:"relative", flexShrink:0 }}>
+        <span style={{ fontSize:isMobile?10:9, fontFamily:"'Orbitron',monospace", color:C.accent, fontWeight:700, flexShrink:0 }}>NVL {lv}</span>
+        <div style={{ flex:1, height:isMobile?5:4, background:C.border, borderRadius:2 }}>
           <div style={{ height:"100%", background:`linear-gradient(90deg,${C.accent},${C.accent2})`, width:`${pct}%`, borderRadius:2, transition:"width .5s" }} />
         </div>
-        <span style={{ fontSize:9, color:C.muted, fontFamily:"'Orbitron',monospace" }}>{xp} XP</span>
-        {user&&<span style={{ fontSize:10, fontWeight:800, color:notaColor(xpToNota(xp)), fontFamily:"'Orbitron',monospace", background:C.card, padding:"1px 7px", borderRadius:6, border:`1px solid ${notaColor(xpToNota(xp))}55` }}>▶ {xpToNota(xp).toFixed(1)}</span>}
+        <span style={{ fontSize:isMobile?10:9, color:C.muted, fontFamily:"'Orbitron',monospace", flexShrink:0 }}>{xp} XP</span>
+        {user&&<span style={{ fontSize:isMobile?11:10, fontWeight:800, color:notaColor(xpToNota(xp)), fontFamily:"'Orbitron',monospace", background:C.card, padding:"2px 8px", borderRadius:6, border:`1px solid ${notaColor(xpToNota(xp))}55`, flexShrink:0 }}>▶ {xpToNota(xp).toFixed(1)}</span>}
         {/* ⏱️ Contador regresivo del reto */}
         {tiempoRestante !== null && (
           <span style={{
