@@ -425,7 +425,7 @@ export default function App() {
   const logout = () => { setUser(null); setView("login"); };
 
   return (
-    <div style={{ fontFamily:"'Syne','Inter',sans-serif", background:C.bg, color:C.text, height:"100vh", overflow:"hidden" }}>
+    <div style={{ fontFamily:"'Syne','Inter',sans-serif", background:C.bg, color:C.text, height:"100dvh", overflow:"hidden" }}>
       <div style={{ position:"fixed", inset:0, backgroundImage:`linear-gradient(rgba(0,200,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,200,255,.025) 1px,transparent 1px)`, backgroundSize:"36px 36px", pointerEvents:"none", zIndex:0 }} />
       {view==="login"   && <LoginView onLogin={login} error={loginErr} />}
       {view==="admin"   && <AdminView user={user} onLogout={logout} />}
@@ -447,7 +447,7 @@ function LoginView({ onLogin, error }) {
   const [grado, setGrado] = useState(""); const [grupo, setGrupo] = useState("");
   const handleSubmit = () => mode==="teacher" ? onLogin({ type:"teacher", email, password:pw }) : onLogin({ type:"student", nombre:nombre.trim(), apellido:apellido.trim(), grado, grupo });
   return (
-    <div style={{ display:"flex", flexDirection: isMobile?"column":"row", height:"100vh", position:"relative", zIndex:5, overflowY:"auto" }}>
+    <div style={{ display:"flex", flexDirection: isMobile?"column":"row", height:"100dvh", position:"relative", zIndex:5, overflowY:"auto" }}>
       {/* Panel izquierdo / header móvil */}
       <div style={{ flex: isMobile?0:1, background:`linear-gradient(135deg,#070d1a,#0d1f3c)`, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding: isMobile?"24px 20px":"40px", borderRight: isMobile?"none":`1px solid ${C.border}`, borderBottom: isMobile?`1px solid ${C.border}`:"none" }}>
         <span style={{ fontSize: isMobile?44:72, color:C.accent, filter:`drop-shadow(0 0 20px ${C.accent})`, marginBottom:12 }}>⬡</span>
@@ -2306,6 +2306,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const countdownRef = useRef(null);
 
   // Iniciar contador cuando cambia retoActual (si tiene tiempo definido)
+  // PERSISTENCIA: guarda inicio en localStorage para que sobreviva recargas
   useEffect(() => {
     clearInterval(countdownRef.current);
     setTiempoAlerta(false);
@@ -2322,17 +2323,45 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
     if (!durSeg || durSeg <= 0) { setTiempoRestante(null); return; }
 
-    const inicio = Date.now();
+    // Clave única por estudiante + reto para persistir en localStorage
+    const storageKey = `nexus_timer_${user?.id||"anon"}_${retoActual.id}`;
+
+    // Intentar recuperar timer guardado (para cuando el estudiante vuelve)
+    let inicio;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const { ts, dur: savedDur } = JSON.parse(saved);
+        // Solo restaurar si es el mismo reto y la duración coincide
+        if (savedDur === durSeg && ts > 0) {
+          const elapsed = Math.floor((Date.now() - ts) / 1000);
+          // Solo restaurar si el timer no ha expirado aún
+          if (elapsed < durSeg) {
+            inicio = ts;
+          }
+        }
+      }
+    } catch(e) {}
+
+    // Si no hay timer guardado válido, empezar uno nuevo
+    if (!inicio) {
+      inicio = Date.now();
+      try { localStorage.setItem(storageKey, JSON.stringify({ ts: inicio, dur: durSeg })); } catch(e) {}
+    }
+
     setTiempoInicio(inicio);
-    setTiempoRestante(durSeg);
+    const initialElapsed = Math.floor((Date.now() - inicio) / 1000);
+    setTiempoRestante(Math.max(0, durSeg - initialElapsed));
 
     countdownRef.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - inicio) / 1000);
       const restante = Math.max(0, durSeg - elapsed);
       setTiempoRestante(restante);
-      // Alerta cuando queda menos del 20% o menos de 10 minutos
       setTiempoAlerta(restante > 0 && (restante <= Math.min(600, durSeg * 0.2)));
-      if (restante <= 0) clearInterval(countdownRef.current);
+      if (restante <= 0) {
+        clearInterval(countdownRef.current);
+        try { localStorage.removeItem(storageKey); } catch(e) {} // limpiar al expirar
+      }
     }, 1000);
 
     return () => clearInterval(countdownRef.current);
@@ -2630,7 +2659,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const colReto  = progReto >= 80 ? "#10d98a" : progReto >= 50 ? "#f59e0b" : C.accent;
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:compact?400:undefined, flex:compact?undefined:1, minHeight:compact?undefined:0, background:C.card, border:`1px solid ${C.border}`, borderRadius:isMobile?0:16, overflow:"hidden", position:"relative" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:compact?400:undefined, flex:compact?undefined:1, minHeight:compact?undefined:0, maxHeight:compact?400:undefined, background:C.card, border:`1px solid ${C.border}`, borderRadius:isMobile?0:16, overflow:"hidden", position:"relative" }}>
 
       {/* ── Header: nivel XP + nota ── */}
       <div style={{ display:"flex", alignItems:"center", gap:isMobile?6:8, padding:isMobile?"6px 10px":"7px 14px", background:C.surface, borderBottom:`1px solid ${C.border}`, position:"relative", flexShrink:0 }}>
@@ -3780,13 +3809,13 @@ function useAnunciosNoLeidos(user) {
 function Layout({ sidebar, children }) {
   const isMobile = useIsMobile();
   return (
-    <div style={{ display:"flex", height:"100vh", position:"relative", zIndex:5 }}>
+    <div style={{ display:"flex", height:"100dvh", position:"relative", zIndex:5 }}>
       {sidebar}
       <main style={{
         flex:1,
         background:C.bg,
         /* En móvil el nav bottom tiene 60px; en desktop 100vh */
-        height: isMobile ? "calc(100vh - 60px)" : "100vh",
+        height: isMobile ? "calc(100dvh - 60px)" : "100dvh",
         overflow: "hidden",
         display:"flex",
         flexDirection:"column",
