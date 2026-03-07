@@ -376,11 +376,10 @@ Cuando el estudiante elija un reto, DEBES:
    - Solo intento/muy incompleto           \u2192 **+5 XP \u2b50 \u00a1Sigue intentando!**
    - Mensaje sin contenido real/fuera del tema \u2192 SIN XP (no incluir la l\u00ednea)
    
-   CASO ESPECIAL - RESPUESTA COMPLETA: Si el estudiante responde de forma completa, coherente y correcta TODAS las preguntas e inquietudes planteadas en el ejercicio, incluye ADEMÁS: "\u2705 \u00a1Respuesta completa! Ya puedes avanzar al siguiente reto \ud83d\ude80" y usa la clave interna RESPUESTA_COMPLETA en tu mensaje (puedes incluirla oculta al final como: <!--RESPUESTA_COMPLETA-->).
-5. ACTIVIDADES SI NO LOGRA: si el estudiante no logra resolver, d\u00e1le actividades pr\u00e1cticas (ejercicios, analog\u00edas, ejemplos con contexto colombiano) que le permitan construir el conocimiento necesario para llegar a la soluci\u00f3n.
+   CASO RESPUESTA COMPLETA: Si el estudiante responde correcta y completamente TODAS las inquietudes del ejercicio, felicítalo con energía e incluye **+25 XP \u2b50\u2b50\u2b50 \u00a1Maestr\u00eda!**. 5. ACTIVIDADES SI NO LOGRA: si el estudiante no logra resolver, d\u00e1le actividades pr\u00e1cticas (ejercicios, analog\u00edas, ejemplos con contexto colombiano) que le permitan construir el conocimiento necesario para llegar a la soluci\u00f3n.
 
 \u2550\u2550 TIP UNA SOLA VEZ AL INICIO DEL RETO \u2550\u2550
-En tu PRIMER mensaje del reto, incluye esta frase: \u201c\ud83d\udca1 Si respondes todo correctamente en UN SOLO mensaje obtienes **+25 XP m\u00e1ximo** y puedes pasar al siguiente reto de inmediato.\u201d
+En tu PRIMER mensaje, SOLO presenta el ejercicio pr\u00e1ctico detallado. NO asignes XP todav\u00eda. La evaluaci\u00f3n empieza cuando el estudiante responda.
 
 \u2550\u2550 CONTADOR DE INTERACCIONES \u2550\u2550
 Interacciones usadas en este reto: ${interaccionesUsadas}/10. Quedan: ${restantes}.
@@ -389,7 +388,7 @@ ${interaccionesUsadas >= 9 ? "\ud83c\udfc1 \u00daLTIMA INTERACCI\u00d3N: Eval\u0
 
 \u2550\u2550 REGLAS \u2550\u2550
 - NUNCA des la respuesta completa. Usa preguntas socr\u00e1ticas, pistas graduales y ejercicios.
-- Si el estudiante logra responder todo correctamente desde el inicio, FELICIT\u00c1LO con energ\u00eda y sug\u00edrale el siguiente reto.
+- Si el estudiante responde TODAS las preguntas del ejercicio de forma correcta, completa y coherente: incluye **+25 XP \u2b50\u2b50\u2b50 \u00a1Maestr\u00eda!** y cel\u00e9bralo. Eso indica que puede avanzar al siguiente reto.
 - Si el estudiante mejora respecto a su respuesta anterior, rec\u00f3nocelo explicitamente.
 - Siempre en espa\u00f1ol colombiano, c\u00e1lido, motivador y cercano. \ud83d\ude80
 ${extraEquipo?`\n${extraEquipo}`:""}`;
@@ -2446,7 +2445,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   // Debounce saveProgress: espera 3s de inactividad antes de escribir en Supabase
   const saveTimer = useRef(null);
-  const addXP = (n, esCompleto=false) => {
+  const addXP = (n) => {
     setXp(prev => {
       const nx = prev + n;
       if (user?.id && !compact) {
@@ -2561,16 +2560,16 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
       setMsgs(p => [...p, {role:"assistant", content:replyFinal}]);
 
-      // XP por mérito: 0 por defecto, solo si NEXUS lo señala explícitamente
+      // XP por mérito: solo a partir del 2do intercambio (después de que el estudiante ya respondió algo)
       let xpGanado = 0;
-      // Respuesta completa (respondió TODAS las preguntas) → máximo XP
-      const esCompleta = /RESPUESTA_COMPLETA|✅.*completa.*avanz|avanzar.*siguiente reto|puede.*pasar.*siguiente/i.test(reply);
-      if (/\+25 XP|25 XP|⭐⭐⭐|¡Maestr|Maestría/i.test(reply))           xpGanado = 25;
-      else if (/\+15 XP|15 XP|⭐⭐ ¡Bien|Bien hecho/i.test(reply))        xpGanado = 15;
-      else if (/\+5 XP|5 XP|⭐ ¡Sigue|Sigue intentando/i.test(reply))     xpGanado = 5;
-      if (xpGanado > 0) addXP(xpGanado, esCompleta);
-      // Si la respuesta fue completa, marcar listo para avanzar directamente
-      if (esCompleta) setListoParaAvanzar(true);
+      const esPresentacion = newCount <= 1; // primer mensaje es solo presentación del ejercicio
+      if (!esPresentacion) {
+        if (/\+25 XP|25 XP|⭐⭐⭐|¡Maestr|Maestría/i.test(reply))         xpGanado = 25;
+        else if (/\+15 XP|15 XP|⭐⭐ ¡Bien|Bien hecho/i.test(reply))      xpGanado = 15;
+        else if (/\+5 XP|5 XP|⭐ ¡Sigue|Sigue intentando/i.test(reply))   xpGanado = 5;
+      }
+      if (xpGanado > 0) addXP(xpGanado);
+      // listoParaAvanzar solo se activa por umbral de XP (80% en addXP)
 
       const retoId = retoActual?.id ?? null;
       if (user?.id && !compact && !reply.startsWith("⚠️")) {
