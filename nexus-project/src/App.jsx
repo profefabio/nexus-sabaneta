@@ -2452,11 +2452,16 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const [tiempoRestante, setTiempoRestante]   = useState(null); // segundos
   const [tiempoAlerta, setTiempoAlerta]       = useState(false);
   const [tiempoInicio, setTiempoInicio]       = useState(null); // timestamp inicio
-  const countdownRef = useRef(null);
+  const countdownRef      = useRef(null);
+  // Ref siempre actualizado con el valor actual de tiempoRestante
+  // (necesario para event listeners de pausa/resume sin stale closure)
+  const tiempoRestanteRef  = useRef(null);
 
-  // ── Cargar timer desde Supabase al cambiar de reto ───────────
-  // PERSISTENCIA: el tiempo de inicio se guarda en nexus_timers (BD)
-  // Así el estudiante puede cambiar de dispositivo y el tiempo sigue corriendo
+  // ── Timer del reto ─────────────────────────────────────────────
+  // PAUSA/RESUME: cuando el usuario sale de la app (visibilitychange / pagehide)
+  // se guarda el tiempo RESTANTE en BD como inicio_ts negativo (truco sin
+  // cambiar el schema: inicio_ts < 0 = pausado, abs(inicio_ts)/1000 = seg restantes).
+  // Al volver, se detecta el valor negativo y se reanuda exactamente donde quedó.
   useEffect(() => {
     clearInterval(countdownRef.current);
     setTiempoAlerta(false);
@@ -2465,75 +2470,138 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     const dur = retoActual?.duracion;
     if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) return;
 
-    const esDias = retoActual.tipo_duracion === "dias";
-    const durSeg = esDias ? Number(dur) * 86400 : Number(dur) * 3600;
+    const esDias  = retoActual.tipo_duracion === "dias";
+    const durSeg  = esDias ? Number(dur) * 86400 : Number(dur) * 3600;
     if (!durSeg || durSeg <= 0) return;
 
     const estudianteId = user?.id || "anon";
     const retoId       = String(retoActual.id);
-    const misionIdStr  = String(misionId || ""); // usar alias para no redeclarar el prop
+    const misionIdStr  = String(misionId || "");
 
-    // Función que arranca el contador desde un timestamp dado
+    // ── Helpers para guardar timer en BD ──────────────────────
+    const saveTimer = (inicio_ts, duracion_seg) => {
+      fetch("/api/timer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
+          mision_id: misionIdStr, inicio_ts, duracion_seg }),
+      }).catch(() => {});
+    };
+
+    // sendBeacon: garantiza el envío incluso al cerrar la pestaña
+    const saveTimerBeacon = (inicio_ts, duracion_seg) => {
+      try {
+        const blob = new Blob(
+          [JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
+            mision_id: misionIdStr, inicio_ts, duracion_seg })],
+          { type: "application/json" }
+        );
+        if (!navigator.sendBeacon("/api/timer", blob)) saveTimer(inicio_ts, duracion_seg);
+      } catch (_) { saveTimer(inicio_ts, duracion_seg); }
+    };
+
+    // ── Arrancar contador desde un inicio_ts real (positivo) ──
     const startCountdown = (inicio) => {
       setTiempoInicio(inicio);
-      const initialElapsed = Math.floor((Date.now() - inicio) / 1000);
-      const initialRestante = Math.max(0, durSeg - initialElapsed);
+      const initialRestante = Math.max(0, durSeg - Math.floor((Date.now() - inicio) / 1000));
       setTiempoRestante(initialRestante);
-      if (initialRestante <= 0) return; // ya expiró
+      tiempoRestanteRef.current = initialRestante;
+      if (initialRestante <= 0) return;
 
       countdownRef.current = setInterval(() => {
-        const elapsed   = Math.floor((Date.now() - inicio) / 1000);
-        const restante  = Math.max(0, durSeg - elapsed);
+        const restante = Math.max(0, durSeg - Math.floor((Date.now() - inicio) / 1000));
         setTiempoRestante(restante);
+        tiempoRestanteRef.current = restante;
         setTiempoAlerta(restante > 0 && restante <= Math.min(600, durSeg * 0.2));
         if (restante <= 0) {
           clearInterval(countdownRef.current);
-          // Borrar timer de la BD al expirar
           fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
             { method: "DELETE" }).catch(() => {});
         }
       }, 1000);
     };
 
-    // Intentar recuperar timer existente desde la BD
-    fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
-      .then(r => r.json())
-      .then(data => {
-        const saved = data?.timer;
-        if (saved && saved.inicio_ts > 0 && saved.duracion_seg === durSeg) {
-          // Timer guardado válido: calcular tiempo ya transcurrido
-          const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
-          if (elapsed < durSeg) {
-            // Aún queda tiempo — restaurar desde el inicio guardado
-            startCountdown(saved.inicio_ts);
-            return;
-          } else {
-            // Ya expiró mientras estaba fuera
-            setTiempoRestante(0);
-            fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
-              { method: "DELETE" }).catch(() => {});
+    // ── Cargar timer desde BD e iniciar ───────────────────────
+    const initTimer = () => {
+      fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
+        .then(r => r.json())
+        .then(data => {
+          const saved = data?.timer;
+
+          // CASO 1 — Timer PAUSADO (inicio_ts negativo guardado al salir)
+          if (saved && saved.inicio_ts < 0) {
+            const restanteSeg = Math.max(0, Math.abs(saved.inicio_ts) / 1000);
+            if (restanteSeg <= 0) {
+              setTiempoRestante(0);
+              tiempoRestanteRef.current = 0;
+              return;
+            }
+            // Convertir a inicio_ts corrido: ajustar como si hubiera empezado
+            // hace (durSeg - restanteSeg) segundos → el interval calcula bien
+            const nuevoInicio = Date.now() - (durSeg - restanteSeg) * 1000;
+            saveTimer(nuevoInicio, durSeg); // actualizar BD con estado corriendo
+            startCountdown(nuevoInicio);
             return;
           }
-        }
-        // No hay timer guardado → crear uno nuevo en la BD
-        const inicio = Date.now();
-        fetch("/api/timer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
-            mision_id: misionIdStr, inicio_ts: inicio, duracion_seg: durSeg }),
-        }).catch(() => {});
-        startCountdown(inicio);
-      })
-      .catch(() => {
-        // Sin conexión: iniciar timer local sin persistir
-        startCountdown(Date.now());
-      });
 
-    return () => clearInterval(countdownRef.current);
-  // FIX BUG-1: incluir duracion — al restaurar sesión el reto se enriquece
-  // con duracion DESPUÉS de que el effect ya corrió con id igual; sin duracion
-  // el timer nunca arrancaba al volver a la sesión.
+          // CASO 2 — Timer CORRIENDO (inicio_ts positivo normal)
+          if (saved && saved.inicio_ts > 0 && saved.duracion_seg === durSeg) {
+            const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
+            if (elapsed < durSeg) {
+              startCountdown(saved.inicio_ts);
+            } else {
+              // Expiró mientras estaba fuera
+              setTiempoRestante(0);
+              tiempoRestanteRef.current = 0;
+              fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
+                { method: "DELETE" }).catch(() => {});
+            }
+            return;
+          }
+
+          // CASO 3 — Sin timer guardado → crear nuevo
+          const inicio = Date.now();
+          saveTimer(inicio, durSeg);
+          startCountdown(inicio);
+        })
+        .catch(() => startCountdown(Date.now())); // sin red: solo local
+    };
+
+    initTimer();
+
+    // ── PAUSA al ocultar la pestaña / app ─────────────────────
+    const pausarTimer = () => {
+      const restante = tiempoRestanteRef.current;
+      if (restante === null || restante <= 0) return;
+      clearInterval(countdownRef.current);
+      // Guardar tiempo restante como negativo (señal de "pausado")
+      saveTimerBeacon(-(restante * 1000), durSeg);
+    };
+
+    // ── RESUME al volver a la pestaña / app ───────────────────
+    const reanudarTimer = () => {
+      clearInterval(countdownRef.current);
+      initTimer(); // recargar desde BD y arrancar desde donde quedó
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) pausarTimer();
+      else reanudarTimer();
+    };
+
+    // pagehide captura cierre de pestaña / navegador
+    const handlePageHide = () => pausarTimer();
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      clearInterval(countdownRef.current);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  // retoActual?.duracion: necesario porque al restaurar sesión el reto llega
+  // primero sin duracion y luego se enriquece → sin esta dep el effect no re-corre
   }, [retoActual?.id, retoActual?.duracion]); // eslint-disable-line
 
   // Formatear tiempo restante para mostrar en UI
@@ -2633,6 +2701,9 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   }, [retoActual?.id, misionId]); // eslint-disable-line
 
   useEffect(() => { endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
+
+  // Mantener ref sincronizado con el estado actual (para event listeners de visibilidad)
+  useEffect(() => { tiempoRestanteRef.current = tiempoRestante; }, [tiempoRestante]);
 
   // ── Prompt con contador de interacciones actualizado ──────────
   const buildCurrentPrompt = (count) => {
