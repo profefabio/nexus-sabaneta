@@ -375,6 +375,8 @@ Cuando el estudiante elija un reto, DEBES:
    - Respuesta parcial/en buen camino      \u2192 **+15 XP \u2b50\u2b50 \u00a1Bien hecho!**
    - Solo intento/muy incompleto           \u2192 **+5 XP \u2b50 \u00a1Sigue intentando!**
    - Mensaje sin contenido real/fuera del tema \u2192 SIN XP (no incluir la l\u00ednea)
+   
+   CASO ESPECIAL - RESPUESTA COMPLETA: Si el estudiante responde de forma completa, coherente y correcta TODAS las preguntas e inquietudes planteadas en el ejercicio, incluye ADEMÁS: "\u2705 \u00a1Respuesta completa! Ya puedes avanzar al siguiente reto \ud83d\ude80" y usa la clave interna RESPUESTA_COMPLETA en tu mensaje (puedes incluirla oculta al final como: <!--RESPUESTA_COMPLETA-->).
 5. ACTIVIDADES SI NO LOGRA: si el estudiante no logra resolver, d\u00e1le actividades pr\u00e1cticas (ejercicios, analog\u00edas, ejemplos con contexto colombiano) que le permitan construir el conocimiento necesario para llegar a la soluci\u00f3n.
 
 \u2550\u2550 TIP UNA SOLA VEZ AL INICIO DEL RETO \u2550\u2550
@@ -2278,6 +2280,9 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const [loading, setLoading] = useState(false);
   const [xp, setXp] = useState(0);
   const [xpAnim, setXpAnim] = useState(null);
+  const [xpEnEsteReto, setXpEnEsteReto] = useState(0); // XP ganado en el reto actual
+  const [listoParaAvanzar, setListoParaAvanzar] = useState(false); // 80%+ del reto completado
+  const MAX_XP_RETO = 100; // XP máximo por reto (4 respuestas perfectas = 100 XP)
   const endRef = useRef(null);
 
   // ── Contador de interacciones — 10 por reto ───────────────────
@@ -2376,6 +2381,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     setPasteCount(0);
     setShowPasteWarning(false);
     setShowHistPrevio(false);
+    setXpEnEsteReto(0);     // resetear XP de este reto
+    setListoParaAvanzar(false); // resetear bandera de avance
 
     const retoId = retoActual?.id ?? null;
     const retoTitle = retoActual?.title || "";
@@ -2439,7 +2446,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   // Debounce saveProgress: espera 3s de inactividad antes de escribir en Supabase
   const saveTimer = useRef(null);
-  const addXP = (n) => {
+  const addXP = (n, esCompleto=false) => {
     setXp(prev => {
       const nx = prev + n;
       if (user?.id && !compact) {
@@ -2450,6 +2457,15 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         );
       }
       return nx;
+    });
+    // Rastrear XP ganado en este reto (máx MAX_XP_RETO)
+    setXpEnEsteReto(prev => {
+      const nuevoXpReto = Math.min(prev + n, MAX_XP_RETO);
+      // Si alcanza 80% del máximo del reto → habilitar sugerencia de avance
+      if (nuevoXpReto >= Math.round(MAX_XP_RETO * 0.8)) {
+        setListoParaAvanzar(true);
+      }
+      return nuevoXpReto;
     });
     setXpAnim(n);
     setTimeout(() => setXpAnim(null), 2000);
@@ -2547,10 +2563,14 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
       // XP por mérito: 0 por defecto, solo si NEXUS lo señala explícitamente
       let xpGanado = 0;
+      // Respuesta completa (respondió TODAS las preguntas) → máximo XP
+      const esCompleta = /RESPUESTA_COMPLETA|✅.*completa.*avanz|avanzar.*siguiente reto|puede.*pasar.*siguiente/i.test(reply);
       if (/\+25 XP|25 XP|⭐⭐⭐|¡Maestr|Maestría/i.test(reply))           xpGanado = 25;
       else if (/\+15 XP|15 XP|⭐⭐ ¡Bien|Bien hecho/i.test(reply))        xpGanado = 15;
       else if (/\+5 XP|5 XP|⭐ ¡Sigue|Sigue intentando/i.test(reply))     xpGanado = 5;
-      if (xpGanado > 0) addXP(xpGanado);
+      if (xpGanado > 0) addXP(xpGanado, esCompleta);
+      // Si la respuesta fue completa, marcar listo para avanzar directamente
+      if (esCompleta) setListoParaAvanzar(true);
 
       const retoId = retoActual?.id ?? null;
       if (user?.id && !compact && !reply.startsWith("⚠️")) {
@@ -2618,7 +2638,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       {/* ── Barra de progreso del reto (interacciones) ── */}
       {misionData && !compact && (
         <div style={{ padding:isMobile?"3px 10px 4px":"5px 14px 7px", background:`${colReto}08`, borderBottom:`1px solid ${colReto}22`, flexShrink:0 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:isMobile?2:4 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:isMobile?2:3 }}>
             <span style={{ fontSize:isMobile?9:10, color:colReto, fontWeight:700 }}>
               {retoCompleto ? "🏁 Completado 10/10" : `⚡ ${interactionCount}/${MAX_INT} interacciones`}
             </span>
@@ -2626,9 +2646,27 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
               {retoCompleto ? `Nota: ${xpToNota(xp).toFixed(1)}` : `${MAX_INT - interactionCount} quedan`}
             </span>
           </div>
-          <div style={{ height:isMobile?3:5, background:C.border, borderRadius:3 }}>
+          <div style={{ height:isMobile?3:5, background:C.border, borderRadius:3, marginBottom:isMobile?2:4 }}>
             <div style={{ height:"100%", width:`${progReto}%`, background:`linear-gradient(90deg,${colReto},${C.accent2})`, borderRadius:3, transition:"width .4s ease" }} />
           </div>
+          {/* Barra XP del reto actual */}
+          {retoActual && !retoCompleto && (
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:2 }}>
+              <span style={{ fontSize:isMobile?8:9, color: xpEnEsteReto >= MAX_XP_RETO*0.8 ? C.accent3 : C.accent, fontWeight:700 }}>
+                {xpEnEsteReto >= MAX_XP_RETO*0.8 ? "✅" : "🎯"} {xpEnEsteReto}/{MAX_XP_RETO} XP reto
+              </span>
+              <span style={{ fontSize:isMobile?8:9, color: xpEnEsteReto >= MAX_XP_RETO*0.8 ? C.accent3 : C.muted }}>
+                {xpEnEsteReto >= MAX_XP_RETO*0.8 ? "¡Listo para avanzar! 🚀" : `${Math.round(xpEnEsteReto/MAX_XP_RETO*100)}%`}
+              </span>
+            </div>
+          )}
+          {retoActual && !retoCompleto && (
+            <div style={{ height:3, background:C.border, borderRadius:3 }}>
+              <div style={{ height:"100%", width:`${Math.min(100, Math.round(xpEnEsteReto/MAX_XP_RETO*100))}%`,
+                background: xpEnEsteReto >= MAX_XP_RETO*0.8 ? `linear-gradient(90deg,${C.accent3},#00ff88)` : `linear-gradient(90deg,${C.accent},${C.accent2})`,
+                borderRadius:3, transition:"width .4s ease" }} />
+            </div>
+          )}
         </div>
       )}
 
@@ -2680,6 +2718,33 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         ))}
         {loading&&<div style={{ display:"flex", gap:8, maxWidth:"82%" }}><div style={{ width:28,height:28,borderRadius:"50%",background:`${C.accent}15`,border:`1.5px solid ${C.accent}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:C.accent }}>⬡</div><div style={{ background:C.surface,border:`1px solid ${C.border}`,borderRadius:"3px 12px 12px 12px",padding:"12px 14px" }}><div style={{ display:"flex", gap:4 }}>{[0,150,300].map(d=><span key={d} style={{ width:6,height:6,borderRadius:"50%",background:C.accent,animation:"pulse 1.2s ease-in-out infinite",display:"inline-block",animationDelay:`${d}ms` }} />)}</div></div></div>}
         {msgs.length===1&&!loading&&<div><div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>💡 Sugerencias:</div><div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>{SUGS.map((q,i)=><button key={i} style={{ background:"transparent",border:`1px solid ${C.border}`,color:C.accent,padding:isMobile?"6px 10px":"6px 12px",borderRadius:20,fontSize:11,cursor:"pointer",fontFamily:"inherit" }} onClick={()=>send(q)}>{q}</button>)}</div></div>}
+
+        {/* Banner 80% — Listo para avanzar (antes de completar las 10 interacciones) */}
+        {listoParaAvanzar && !retoCompleto && !misionAnulada && (() => {
+          const sigReto = retoActual && todosRetos?.length > 0
+            ? todosRetos[retoActual.idx + 1] || null : null;
+          return (
+            <div style={{ background:`${C.accent3}10`, border:`2px solid ${C.accent3}88`, borderRadius:14, padding:"14px 18px", textAlign:"center", margin:"8px 0", animation:"pulse 2s infinite" }}>
+              <div style={{ fontSize:28, marginBottom:4 }}>🎯</div>
+              <div style={{ fontFamily:"'Orbitron',monospace", fontSize:11, color:C.accent3, fontWeight:900, marginBottom:4 }}>
+                ¡Excelente desempeño! — {xpEnEsteReto}/{MAX_XP_RETO} XP en este reto
+              </div>
+              <div style={{ fontSize:12, color:"#e2e8f0", marginBottom:10 }}>
+                Has demostrado dominio de los conceptos. ¡Puedes avanzar al siguiente reto! 🚀
+              </div>
+              {sigReto ? (
+                <button onClick={() => {
+                  if (setRetoActual) setRetoActual({ id: sigReto.id, title: sigReto.title, stars: sigReto.stars, idx: retoActual.idx + 1, desc: sigReto.desc, duracion: sigReto.duracion||null, tipo_duracion: sigReto.tipo_duracion||"horas" });
+                }} style={{ padding:"8px 20px", background:`linear-gradient(135deg,${C.accent3}88,${C.accent}88)`, border:`1px solid ${C.accent3}`, borderRadius:10, color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                  🚀 Avanzar al Reto {sigReto.id}: {sigReto.title} →
+                </button>
+              ) : (
+                <div style={{ fontSize:11, color:C.accent3, fontWeight:700 }}>🏅 ¡Has dominado todos los retos de esta misión!</div>
+              )}
+              <div style={{ fontSize:10, color:C.muted, marginTop:6 }}>También puedes continuar practicando para reforzar.</div>
+            </div>
+          );
+        })()}
 
         {/* Banner de reto completado */}
         {retoCompleto && !misionAnulada && (() => {
