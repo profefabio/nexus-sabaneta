@@ -2531,7 +2531,10 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       });
 
     return () => clearInterval(countdownRef.current);
-  }, [retoActual?.id]); // eslint-disable-line
+  // FIX BUG-1: incluir duracion — al restaurar sesión el reto se enriquece
+  // con duracion DESPUÉS de que el effect ya corrió con id igual; sin duracion
+  // el timer nunca arrancaba al volver a la sesión.
+  }, [retoActual?.id, retoActual?.duracion]); // eslint-disable-line
 
   // Formatear tiempo restante para mostrar en UI
   const formatTiempo = (seg) => {
@@ -2594,8 +2597,16 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
     setHistorialCargado(false);
 
+    // FIX BUG-2: si el usuario es compañero (no líder del equipo), los mensajes
+    // reales fueron guardados bajo el ID del líder, no del compañero.
+    // Usamos liderId para cargar el historial compartido del equipo.
+    const histStudentId =
+      equipo?.liderId && String(equipo.liderId) !== String(user?.id)
+        ? equipo.liderId
+        : user.id;
+
     // Cargar historial de ESTE reto
-    loadChatHistory(user.id, misionId, retoId).then(hist => {
+    loadChatHistory(histStudentId, misionId, retoId).then(hist => {
       if (hist.length > 0) {
         const cont = { role:"assistant", content:`📚 *Continuando el Reto ${retoActual?.id||""}... ${hist.filter(m=>m.role==="user").length} interacciones previas registradas.* ¿Seguimos? 💪` };
         setMsgs([{ role:"assistant", content: bienvenidaReto }, ...hist, cont]);
@@ -2612,7 +2623,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     if (retoActual && retoActual.idx > 0 && todosRetos?.length > 0) {
       const retoAnterior = todosRetos[retoActual.idx - 1];
       if (retoAnterior) {
-        loadChatHistory(user.id, misionId, retoAnterior.id).then(hist => {
+        loadChatHistory(histStudentId, misionId, retoAnterior.id).then(hist => {
           if (hist.length > 0) setHistorialPrevio(hist);
         });
       }
