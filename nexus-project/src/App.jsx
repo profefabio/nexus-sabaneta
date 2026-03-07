@@ -1920,6 +1920,18 @@ function StudentView({ user, onLogout }) {
   // Al cambiar misión, resetear reto
   useEffect(() => { setRetoActual(null); }, [mission]);
 
+  // ── Persistir reto activo en BD (nexus_chats como msg de sistema) ─────
+  // Al seleccionar un reto, guardamos __reto_activo__:{id} para restaurarlo
+  // en cualquier dispositivo al volver a iniciar sesión.
+  useEffect(() => {
+    if (!retoActual?.id || !mission || !user?.id) return;
+    saveChatMsg(
+      user, "system",
+      `__reto_activo__:${retoActual.id}`,
+      mission, null, 0, equipo?.nombre || null, retoActual.id
+    );
+  }, [retoActual?.id]); // eslint-disable-line
+
 
   // Cargar misiones del docente asignado y filtrar por grado del estudiante
   useEffect(()=>{
@@ -1946,18 +1958,19 @@ function StudentView({ user, onLogout }) {
             setMission(d.equipo.misionId);
             setTab("chat"); // asegurar que el tab activo sea el chat
           }
-          // Restaurar reto si estaba trabajando en uno específico
-          if (d.equipo.retoActual) {
+          // Restaurar reto desde equipo si viene en la API
+          if (d.equipo.retoActual?.id) {
             setRetoActual({
-              id:           d.equipo.retoActual.id,
-              title:        d.equipo.retoActual.title   || "",
-              stars:        d.equipo.retoActual.stars    || 1,
-              idx:          d.equipo.retoActual.idx      || 0,
-              desc:         d.equipo.retoActual.desc     || "",
-              duracion:     d.equipo.retoActual.duracion || null,
+              id:            d.equipo.retoActual.id,
+              title:         d.equipo.retoActual.title         || "",
+              stars:         d.equipo.retoActual.stars         || 1,
+              idx:           d.equipo.retoActual.idx           ?? 0,
+              desc:          d.equipo.retoActual.desc          || "",
+              duracion:      d.equipo.retoActual.duracion      || null,
               tipo_duracion: d.equipo.retoActual.tipo_duracion || "horas",
             });
           }
+          // Si no viene reto del equipo → lo restauramos en el effect de missionData abajo
         }
       })
       .catch(() => {});
@@ -1966,7 +1979,41 @@ function StudentView({ user, onLogout }) {
 
   // Enriquecer retoActual cuando misionData cargue (para compañeros de equipo que se unen)
   // IMPORTANTE: debe ir DESPUÉS de missionData para evitar TDZ
-  // FIX: corre si falta title O si falta duracion (sesión restaurada sin duracion)
+  // ── Restaurar reto activo desde BD cuando missionData carga ─────────
+  // Consultamos nexus_chats por el último mensaje __reto_activo__:X
+  // guardado cuando el estudiante eligió el reto (funciona en cualquier dispositivo).
+  useEffect(() => {
+    if (!missionData?.retos?.length || !mission || !user?.id) return;
+    if (retoActual) return; // ya restaurado por equipo
+    const estudianteId = equipo?.liderId || user.id;
+    fetch(`/api/savechat?estudiante_id=${estudianteId}&mision_id=${mission}`)
+      .then(r => r.json())
+      .then(d => {
+        // Buscar el último __reto_activo__ guardado
+        const msgs = d.msgs || [];
+        const ultimoRetoMsg = [...msgs]
+          .reverse()
+          .find(m => m.role === "system" && String(m.content||"").startsWith("__reto_activo__:"));
+        if (!ultimoRetoMsg) return;
+        const retoId = ultimoRetoMsg.content.split(":")[1];
+        const reto = missionData.retos.find(r => String(r.id) === String(retoId));
+        if (!reto) return;
+        const idx = missionData.retos.indexOf(reto);
+        console.log("[NEXUS] ✅ Reto restaurado desde BD →", reto.id, reto.title, "duracion:", reto.duracion);
+        setRetoActual({
+          id:            reto.id,
+          title:         reto.title         || "",
+          stars:         reto.stars         || 1,
+          idx,
+          desc:          reto.desc          || "",
+          duracion:      reto.duracion      || null,
+          tipo_duracion: reto.tipo_duracion || "horas",
+        });
+      })
+      .catch(() => {});
+  }, [missionData, mission]); // eslint-disable-line
+
+    // FIX: corre si falta title O si falta duracion (sesión restaurada sin duracion)
   useEffect(() => {
     if (!retoActual || !missionData?.retos?.length) return;
     const necesitaEnriquecer = !retoActual.title ||
