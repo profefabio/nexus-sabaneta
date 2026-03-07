@@ -75,7 +75,22 @@ module.exports = async function handler(req, res) {
           });
         }
       });
-      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes, liderId, misionId } });
+      // Buscar el último reto activo del equipo (el más reciente con reto_id != null)
+      let retoActual = null;
+      try {
+        const { data: retoRows } = await supabase
+          .from("nexus_chats")
+          .select("reto_id, content")
+          .eq("equipo_nombre", nombreEquipo)
+          .not("reto_id", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (retoRows?.length > 0 && retoRows[0].reto_id) {
+          retoActual = { id: retoRows[0].reto_id };
+        }
+      } catch(_) {}
+
+      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes, liderId, misionId, retoActual } });
     } catch (err) {
       return res.status(200).json({ equipo: null });
     }
