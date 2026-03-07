@@ -836,6 +836,11 @@ function ProgresoPanel({ user }) {
   // Cascada: grado → grupo → lista
   const [filtroGrado, setFiltroGrado] = useState("");
   const [filtroGrupo, setFiltroGrupo] = useState("");
+  // Modal de reinicio por grado/grupo
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetGrado, setResetGrado]   = useState("");
+  const [resetGrupo, setResetGrupo]   = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Siempre cargar con docente_id — admin ve sus propios estudiantes por defecto
   useEffect(() => {
@@ -873,12 +878,21 @@ function ProgresoPanel({ user }) {
 
   return (
     <Page title="📊 Progreso Estudiantil">
-      {/* Botón limpiar — solo admin/teacher */}
+      {/* Botones de reinicio — solo admin/teacher */}
       {user.role !== "student" && (
-        <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+        <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+
+          {/* Botón: Reiniciar por Grado/Grupo */}
+          <button onClick={() => setShowResetModal(true)}
+            style={{ padding:"7px 16px", background:"#f59e0b15", border:"1px solid #f59e0b55",
+              borderRadius:9, color:"#f59e0b", fontSize:11, cursor:"pointer", fontWeight:700,
+              display:"flex", alignItems:"center", gap:6 }}>
+            🔄 Reiniciar por Grado/Grupo
+          </button>
+
+          {/* Botón: Borrar TODO */}
           <button onClick={async () => {
             if (!confirm("⚠️ ¿Eliminar TODO el progreso y chats de TUS estudiantes?\n\nSe borrarán:\n• Todos los chats y conversaciones\n• Todo el XP y notas\n\nEsta acción NO se puede deshacer.")) return;
-            // Borrar progreso
             const r1 = await fetch("/api/usuarios", {
               method:"POST", headers:{"Content-Type":"application/json"},
               body: JSON.stringify({ accion:"limpiar_progreso_docente", docente_id: user.id })
@@ -891,6 +905,99 @@ function ProgresoPanel({ user }) {
             display:"flex", alignItems:"center", gap:6 }}>
             🗑️ Borrar todo el progreso y chats
           </button>
+        </div>
+      )}
+
+      {/* ── Modal: Reiniciar por Grado/Grupo ────────────────── */}
+      {showResetModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:999,
+          display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16,
+            padding:"28px 24px", maxWidth:420, width:"100%", boxShadow:"0 20px 60px #00000080" }}>
+
+            <div style={{ fontSize:18, fontWeight:800, color:C.text, marginBottom:6 }}>
+              🔄 Reiniciar Progreso por Grado/Grupo
+            </div>
+            <div style={{ fontSize:12, color:C.muted, marginBottom:20, lineHeight:1.6 }}>
+              Se borrarán <strong>chats, XP, notas y timers</strong> de los estudiantes del grado y grupo seleccionados.
+              Los demás grupos no se verán afectados.
+            </div>
+
+            {/* Selector Grado */}
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:5 }}>GRADO</div>
+              <select value={resetGrado} onChange={e=>{setResetGrado(e.target.value); setResetGrupo("");}}
+                style={{ width:"100%", padding:"8px 10px", background:C.surface, border:`1px solid ${C.border}`,
+                  borderRadius:8, color:C.text, fontSize:13 }}>
+                <option value="">— Selecciona un grado —</option>
+                {["6","7","8","9","10","11"].map(g => (
+                  <option key={g} value={g}>Grado {g}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selector Grupo */}
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11, color:C.muted, fontWeight:700, marginBottom:5 }}>GRUPO</div>
+              <select value={resetGrupo} onChange={e=>setResetGrupo(e.target.value)}
+                style={{ width:"100%", padding:"8px 10px", background:C.surface, border:`1px solid ${C.border}`,
+                  borderRadius:8, color:C.text, fontSize:13 }}>
+                <option value="">— Todos los grupos —</option>
+                {["01","02","03","04","A","B","C","D"].map(g => (
+                  <option key={g} value={g}>Grupo {g}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Preview: qué se va a borrar */}
+            {resetGrado && (
+              <div style={{ background:`#f59e0b10`, border:`1px solid #f59e0b44`, borderRadius:10,
+                padding:"10px 14px", marginBottom:18, fontSize:12, color:"#f59e0b" }}>
+                ⚠️ Se reiniciará: <strong>Grado {resetGrado}{resetGrupo ? ` — Grupo ${resetGrupo}` : " (todos los grupos)"}</strong>
+              </div>
+            )}
+
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button onClick={() => { setShowResetModal(false); setResetGrado(""); setResetGrupo(""); }}
+                style={{ padding:"8px 18px", background:"transparent", border:`1px solid ${C.border}`,
+                  borderRadius:9, color:C.muted, fontSize:12, cursor:"pointer" }}>
+                Cancelar
+              </button>
+              <button
+                disabled={!resetGrado || resetLoading}
+                onClick={async () => {
+                  if (!confirm(`⚠️ ¿Reiniciar TODO el progreso de Grado ${resetGrado}${resetGrupo ? " Grupo "+resetGrupo : ""}?\n\nEsta acción NO se puede deshacer.`)) return;
+                  setResetLoading(true);
+                  try {
+                    const r = await fetch("/api/usuarios", {
+                      method: "POST", headers: {"Content-Type":"application/json"},
+                      body: JSON.stringify({
+                        accion:     "limpiar_progreso_grado",
+                        docente_id: user.id,
+                        grado:      resetGrado,
+                        grupo:      resetGrupo || null,
+                      })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                      alert(`✅ Listo. ${d.estudiantesAfectados||0} estudiante(s) de Grado ${resetGrado}${resetGrupo?` Grupo ${resetGrupo}`:""} reseteados.`);
+                      setShowResetModal(false); setResetGrado(""); setResetGrupo("");
+                      window.location.reload();
+                    } else {
+                      alert("Error: " + (d.error||"desconocido"));
+                    }
+                  } finally { setResetLoading(false); }
+                }}
+                style={{ padding:"8px 20px",
+                  background: !resetGrado ? C.surface : "#f59e0b",
+                  border: "none", borderRadius:9,
+                  color: !resetGrado ? C.muted : "#000",
+                  fontSize:12, cursor: !resetGrado ? "not-allowed" : "pointer",
+                  fontWeight:800, opacity: resetLoading ? 0.6 : 1 }}>
+                {resetLoading ? "⏳ Reiniciando..." : "🔄 Reiniciar"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {loading && <div style={{ color:C.muted, fontSize:13 }}>⏳ Cargando...</div>}
@@ -2322,7 +2429,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
     const estudianteId = user?.id || "anon";
     const retoId       = String(retoActual.id);
-    const misionId     = String(misionId || "");
+    const misionIdStr  = String(misionId || ""); // usar alias para no redeclarar el prop
 
     // Función que arranca el contador desde un timestamp dado
     const startCountdown = (inicio) => {
@@ -2340,14 +2447,14 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         if (restante <= 0) {
           clearInterval(countdownRef.current);
           // Borrar timer de la BD al expirar
-          fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionId}`,
+          fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
             { method: "DELETE" }).catch(() => {});
         }
       }, 1000);
     };
 
     // Intentar recuperar timer existente desde la BD
-    fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionId}`)
+    fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
       .then(r => r.json())
       .then(data => {
         const saved = data?.timer;
@@ -2361,7 +2468,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
           } else {
             // Ya expiró mientras estaba fuera
             setTiempoRestante(0);
-            fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionId}`,
+            fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
               { method: "DELETE" }).catch(() => {});
             return;
           }
@@ -2372,7 +2479,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
-            mision_id: misionId, inicio_ts: inicio, duracion_seg: durSeg }),
+            mision_id: misionIdStr, inicio_ts: inicio, duracion_seg: durSeg }),
         }).catch(() => {});
         startCountdown(inicio);
       })
