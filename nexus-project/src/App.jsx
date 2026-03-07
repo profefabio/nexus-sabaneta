@@ -112,7 +112,7 @@ const loadChatHistory = async (estudianteId, misionId, retoId) => {
     const res = await fetch("/api/savechat?" + params);
     const data = await res.json();
     return (data.msgs || [])
-      .filter(m => m.role !== "system" && !String(m.content||"").startsWith("__equipo_registrado__"))
+      .filter(m => m.role !== "system" && !String(m.content||"").startsWith("__equipo_registrado__") && !String(m.content||"").startsWith("__reto_activo__:"))
       .map(m => ({ role: m.role, content: m.content, retoId: m.reto_id }));
   } catch(_) { return []; }
 };
@@ -1925,8 +1925,9 @@ function StudentView({ user, onLogout }) {
   // en cualquier dispositivo al volver a iniciar sesión.
   useEffect(() => {
     if (!retoActual?.id || !mission || !user?.id) return;
+    // Guardamos con role "user" porque la DB solo acepta user/assistant
     saveChatMsg(
-      user, "system",
+      user, "user",
       `__reto_activo__:${retoActual.id}`,
       mission, null, 0, equipo?.nombre || null, retoActual.id
     );
@@ -1980,20 +1981,21 @@ function StudentView({ user, onLogout }) {
   // Enriquecer retoActual cuando misionData cargue (para compañeros de equipo que se unen)
   // IMPORTANTE: debe ir DESPUÉS de missionData para evitar TDZ
   // ── Restaurar reto activo desde BD cuando missionData carga ─────────
-  // Consultamos nexus_chats por el último mensaje __reto_activo__:X
-  // guardado cuando el estudiante eligió el reto (funciona en cualquier dispositivo).
+  // Buscamos el último mensaje __reto_activo__:X en nexus_chats.
+  // Funciona en cualquier dispositivo. Para equipos, leemos del líder.
   useEffect(() => {
     if (!missionData?.retos?.length || !mission || !user?.id) return;
-    if (retoActual) return; // ya restaurado por equipo
+    if (retoActual) return; // ya restaurado
+    // Para compañeros: usar liderId para leer los mensajes del equipo
     const estudianteId = equipo?.liderId || user.id;
     fetch(`/api/savechat?estudiante_id=${estudianteId}&mision_id=${mission}`)
       .then(r => r.json())
       .then(d => {
-        // Buscar el último __reto_activo__ guardado
         const msgs = d.msgs || [];
+        // Buscar el último __reto_activo__ (guardado con role "user")
         const ultimoRetoMsg = [...msgs]
           .reverse()
-          .find(m => m.role === "system" && String(m.content||"").startsWith("__reto_activo__:"));
+          .find(m => String(m.content||"").startsWith("__reto_activo__:"));
         if (!ultimoRetoMsg) return;
         const retoId = ultimoRetoMsg.content.split(":")[1];
         const reto = missionData.retos.find(r => String(r.id) === String(retoId));
@@ -2011,7 +2013,8 @@ function StudentView({ user, onLogout }) {
         });
       })
       .catch(() => {});
-  }, [missionData, mission]); // eslint-disable-line
+  // equipo?.liderId en deps: para compañeros que cargan después del equipo
+  }, [missionData, mission, equipo?.liderId]); // eslint-disable-line
 
     // FIX: corre si falta title O si falta duracion (sesión restaurada sin duracion)
   useEffect(() => {
@@ -3354,6 +3357,8 @@ function EquiposPanel({ user }) {
   const [filtroGrado,  setFiltroGrado]  = useState("todos");
   const [filtroGrupo,  setFiltroGrupo]  = useState("todos");
   const [filtroMision, setFiltroMision] = useState("todas");
+  const [busqueda,     setBusqueda]     = useState("");      // búsqueda por nombre de equipo
+  const [resetLoading, setResetLoading] = useState(false);  // para el botón eliminar filtrados
 
   useEffect(() => {
     let ignore = false;
@@ -3396,9 +3401,13 @@ function EquiposPanel({ user }) {
   const equiposFiltGrado = filtroGrado === "todos" ? equipos : equipos.filter(e => e.grado === filtroGrado);
   const equiposFiltGrupo = filtroGrupo === "todos" ? equiposFiltGrado : equiposFiltGrado.filter(e => e.grupo === filtroGrupo);
   const todasMisiones = [...new Map(equiposFiltGrupo.flatMap(e => e.misiones).map(m => [m.id, m])).values()];
-  const equiposFiltrados = filtroMision === "todas"
+  const equiposFiltMision = filtroMision === "todas"
     ? equiposFiltGrupo
     : equiposFiltGrupo.filter(e => e.misiones.some(m => m.id === filtroMision));
+  // Filtro adicional por nombre de equipo
+  const equiposFiltrados = busqueda.trim()
+    ? equiposFiltMision.filter(e => e.nombre.toLowerCase().includes(busqueda.trim().toLowerCase()))
+    : equiposFiltMision;
 
   const notaColor2 = (n) => n>=4.5?"#10d98a":n>=4.0?"#22c55e":n>=3.5?"#eab308":n>=3.0?"#f97316":"#ef4444";
   const barWidth   = (xp) => Math.min(100, Math.round((xp / 250) * 100)) + "%";
@@ -3774,34 +3783,71 @@ function EquiposPanel({ user }) {
     <div style={{ flex:1, overflowY:"auto", overflowX:"hidden", WebkitOverflowScrolling:"touch",
       padding: isMobile?"14px 12px 90px":"26px", maxWidth:900, boxSizing:"border-box" }}>
 
-      {/* Encabezado + botón disolver todos */}
-      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+      {/* Encabezado + botones de acción */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:14, flexWrap:"wrap", gap:10 }}>
         <div>
           <h1 style={{ ...ptitle, fontSize: isMobile?17:22, margin:0 }}>👥 Equipos</h1>
           <p style={{ fontSize:12, color:C.muted, marginTop:4, marginBottom:0 }}>
             Equipos formados por los estudiantes. Clic en un equipo para ver el informe completo.
           </p>
         </div>
-        {equipos.length > 0 && (
-          <button onClick={async () => {
-            if (!confirm(`⚠️ RESET COMPLETO — ${equipos.length} equipo(s)\n\nSe eliminarán:\n• Todos los chats de equipo\n• El progreso y XP de los integrantes\n\nEsta acción NO se puede deshacer.`)) return;
-            const r = await fetch("/api/usuarios", {
-              method:"POST", headers:{"Content-Type":"application/json"},
-              body: JSON.stringify({ accion:"limpiar_equipos", docente_id: user.id })
-            });
-            const d = await r.json();
-            if (d.success) {
-              setEquipos([]); setSelEquipo(null);
-              alert(`✅ Reset completo. ${d.estudiantesAfectados || 0} estudiante(s) limpiados.`);
-            } else alert("Error: " + d.error);
-          }} style={{ padding:"8px 16px", background:"#ef444415",
-            border:"1px solid #ef444455", borderRadius:10, color:"#ef4444",
-            fontSize:11, cursor:"pointer", fontWeight:700, whiteSpace:"nowrap",
-            display:"flex", alignItems:"center", gap:6 }}>
-            🗑️ Eliminar todos · Reset XP
-          </button>
-        )}
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+          {/* Botón eliminar equipos filtrados actuales */}
+          {equiposFiltrados.length > 0 && (
+            <button disabled={resetLoading} onClick={async () => {
+              const label = busqueda.trim()
+                ? `"${busqueda.trim()}"` 
+                : filtroGrado !== "todos"
+                  ? `Grado ${filtroGrado}${filtroGrupo !== "todos" ? " Grupo " + filtroGrupo : ""}`
+                  : "TODOS";
+              if (!confirm(`⚠️ Eliminar ${equiposFiltrados.length} equipo(s) — ${label}\n\nSe borrarán chats, XP y progreso de sus integrantes.\n\nEsta acción NO se puede deshacer.`)) return;
+              setResetLoading(true);
+              try {
+                for (const eq of equiposFiltrados) {
+                  await fetch("/api/equipos", {
+                    method:"DELETE", headers:{"Content-Type":"application/json"},
+                    body: JSON.stringify({ nombre: eq.nombre, docente_id: user.id })
+                  });
+                }
+                setEquipos(prev => prev.filter(e => !equiposFiltrados.some(f => f.nombre === e.nombre)));
+                setSelEquipo(null);
+                setBusqueda(""); setFiltroGrado("todos"); setFiltroGrupo("todos"); setFiltroMision("todas");
+                alert(`✅ ${equiposFiltrados.length} equipo(s) eliminados.`);
+              } catch(err) {
+                alert("Error al eliminar: " + err.message);
+              } finally { setResetLoading(false); }
+            }} style={{ padding:"8px 14px", background:"#ef444415",
+              border:"1px solid #ef444455", borderRadius:10, color:"#ef4444",
+              fontSize:11, cursor: resetLoading ? "not-allowed":"pointer", fontWeight:700,
+              whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5,
+              opacity: resetLoading ? 0.6 : 1 }}>
+              {resetLoading ? "⏳ Eliminando..." : `🗑️ Eliminar ${equiposFiltrados.length === equipos.length ? "todos" : `${equiposFiltrados.length} seleccionados`}`}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Barra de búsqueda por nombre de equipo */}
+      {equipos.length > 0 && (
+        <div style={{ marginBottom:12, position:"relative" }}>
+          <input
+            type="text"
+            placeholder="🔍 Buscar equipo por nombre..."
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            style={{ width:"100%", boxSizing:"border-box", padding:"10px 40px 10px 14px",
+              background:C.card, border:`1px solid ${busqueda?C.accent:C.border}`,
+              borderRadius:12, color:C.text, fontSize:13, outline:"none", fontFamily:"inherit" }}
+          />
+          {busqueda && (
+            <button onClick={() => setBusqueda("")}
+              style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
+                background:"transparent", border:"none", color:C.muted, cursor:"pointer", fontSize:16 }}>
+              ✕
+            </button>
+          )}
+        </div>
+      )}
 
       {loading && <div style={{ color:C.muted,fontSize:13 }}>⏳ Cargando equipos...</div>}
       {error   && <div style={{ background:"#ff444422",border:"1px solid #ff444444",color:"#ff7777",
