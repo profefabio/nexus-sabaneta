@@ -2592,6 +2592,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
     // ── Arrancar contador desde un inicio_ts real (positivo) ──
     const startCountdown = (inicio) => {
+      // Limpiar intervalo previo para evitar duplicados
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
       setTiempoInicio(inicio);
       const initialRestante = Math.max(0, durSeg - Math.floor((Date.now() - inicio) / 1000));
       setTiempoRestante(initialRestante);
@@ -2686,8 +2688,62 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
 
+    // ── SINCRONIZACIÓN PERIÓDICA: todos los miembros del equipo ──────────────
+    // Cada 5 segundos se consulta el estado real del timer en BD.
+    // Esto garantiza que:
+    //   • Los compañeros ven el mismo tiempo que el líder.
+    //   • Si el líder sale (pausa), los compañeros congelan su cuenta.
+    //   • Si el líder vuelve (reanuda), los compañeros reanudan exacto.
+    // El líder también sincroniza por si abrió la sesión en otro dispositivo.
+    const syncInterval = setInterval(() => {
+      // Solo sincronizar si el timer está activo
+      if (tiempoRestanteRef.current === null || tiempoRestanteRef.current <= 0) return;
+
+      fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
+        .then(r => r.json())
+        .then(data => {
+          const saved = data?.timer;
+          if (!saved) return;
+
+          // CASO: Timer PAUSADO en BD (líder cerró pestaña/app) → congelar local
+          if (saved.inicio_ts < 0) {
+            const restanteSeg = Math.max(0, Math.abs(saved.inicio_ts) / 1000);
+            // Solo congelar si actualmente estamos corriendo (evitar re-renders innecesarios)
+            if (tiempoRestanteRef.current > 0 && countdownRef.current) {
+              clearInterval(countdownRef.current);
+              countdownRef.current = null;
+              setTiempoRestante(Math.round(restanteSeg));
+              tiempoRestanteRef.current = Math.round(restanteSeg);
+              setTiempoAlerta(restanteSeg > 0 && restanteSeg <= Math.min(600, durSeg * 0.2));
+            }
+            return;
+          }
+
+          // CASO: Timer CORRIENDO en BD → verificar si nuestro local está desfasado
+          if (saved.inicio_ts > 0 && saved.duracion_seg === durSeg) {
+            const restanteDB = Math.max(0, durSeg - Math.floor((Date.now() - saved.inicio_ts) / 1000));
+            const restanteLocal = tiempoRestanteRef.current ?? 0;
+
+            // Si el intervalo local fue cancelado (estaba pausado) y el DB dice "corriendo" → reanudar
+            if (!countdownRef.current && restanteDB > 0) {
+              startCountdown(saved.inicio_ts);
+              return;
+            }
+
+            // Si hay desincronización mayor a 5 segundos → re-sincronizar
+            if (Math.abs(restanteLocal - restanteDB) > 5 && restanteDB > 0) {
+              clearInterval(countdownRef.current);
+              countdownRef.current = null;
+              startCountdown(saved.inicio_ts);
+            }
+          }
+        })
+        .catch(() => {}); // Sin red: mantener countdown local
+    }, 5000); // Cada 5 segundos
+
     return () => {
       clearInterval(countdownRef.current);
+      clearInterval(syncInterval); // limpiar sync al desmontar o cambiar reto
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
     };
