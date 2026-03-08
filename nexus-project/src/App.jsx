@@ -2479,7 +2479,7 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva
 // ═══════════════════════════════════════════════════════════════
 function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle, retoActual, setRetoActual, todosRetos, onLogout }) {
   // Al cerrar sesión explícitamente, guardar sentinel de logout en BD para los compañeros
-  const notificarLogoutEquipo = React.useCallback(() => {
+  const notificarLogoutEquipo = useCallback(() => {
     const esLider = equipo?.liderId && String(equipo.liderId) === String(user?.id);
     if (!esLider || !equipo || !retoActual?.id || !misionId) return;
     const estudianteId = String(user.id);
