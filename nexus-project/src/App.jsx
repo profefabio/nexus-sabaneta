@@ -2685,31 +2685,26 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
           // ── SENTINEL de sesión cerrada: inicio_ts muy negativo (< -1_000_000_000 ms) ──
           // El valor guardado es -(inicio_ts original), así que Math.abs recupera el inicio real.
           // • Compañero → logout inmediato
-          // • Líder     → borra sentinel y reanuda contador desde el inicio_ts original
+          // • Líder     → sobreescribe sentinel con inicio_ts positivo (operación ATÓMICA,
+          //               sin DELETE previo para evitar condición de carrera) y reanuda
           if (saved && saved.inicio_ts < -1000000000) {
             if (esCompanero) {
               if (typeof onLogout === "function") onLogout();
             } else {
-              // Recuperar el inicio_ts original y reanudar el contador
               const inicioOriginal = Math.abs(saved.inicio_ts);
-              fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
-                { method: "DELETE" })
-                .catch(() => {})
-                .finally(() => {
-                  const elapsed = Math.floor((Date.now() - inicioOriginal) / 1000);
-                  if (elapsed < durSeg) {
-                    // Tiempo aún vigente: reanudar desde el mismo inicio_ts
-                    saveTimer(inicioOriginal, durSeg);
-                    startCountdown(inicioOriginal);
-                  } else {
-                    // Ya expiró mientras estaba desconectado
-                    saveTimer(inicioOriginal, durSeg);
-                    setTiempoTranscurrido(durSeg);
-                    setTiempoRestante(0);
-                    tiempoRestanteRef.current = 0;
-                    setTiempoFinalizado(true);
-                  }
-                });
+              const elapsed = Math.floor((Date.now() - inicioOriginal) / 1000);
+              if (elapsed < durSeg) {
+                // Sobreescribir sentinel con el inicio_ts real en un solo upsert → sin race condition
+                saveTimer(inicioOriginal, durSeg);
+                startCountdown(inicioOriginal); // arranca inmediatamente desde el tiempo correcto
+              } else {
+                // Tiempo ya expiró mientras estaba desconectado
+                saveTimer(inicioOriginal, durSeg);
+                setTiempoTranscurrido(durSeg);
+                setTiempoRestante(0);
+                tiempoRestanteRef.current = 0;
+                setTiempoFinalizado(true);
+              }
             }
             return;
           }
