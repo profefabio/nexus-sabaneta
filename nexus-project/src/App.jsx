@@ -2518,6 +2518,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const countdownRef      = useRef(null);
   // Refs siempre actualizados (sin stale-closure en event listeners)
   const tiempoRestanteRef  = useRef(null);
+  const tiempoInicioRef    = useRef(null); // timestamp de inicio (para cerrar sesión conservando tiempo)
   const durSegRef          = useRef(null); // duración total del reto en segundos
   // Milestones ya notificados en el chat: Set de porcentajes (50, 75, 87, 100)
   const milestonesEnviadosRef = useRef(new Set());
@@ -2602,6 +2603,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       // Limpiar intervalo previo para evitar duplicados
       if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
       setTiempoInicio(inicio);
+      tiempoInicioRef.current = inicio;    // ref para acceso sin stale closure
       durSegRef.current = durSeg; // guardar duración total para acceso sin stale closure
 
       // Calcular valores iniciales
@@ -2680,21 +2682,33 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
         .then(data => {
           const saved = data?.timer;
 
-          // ── SENTINEL -1: señal de "líder cerró sesión" ──────────────────────
-          // • Compañero  → hace logout (el líder cerró y terminó la sesión de todos)
-          // • Líder      → borra el sentinel y crea un timer nuevo (está volviendo a entrar)
-          if (saved && saved.inicio_ts === -1) {
+          // ── SENTINEL de sesión cerrada: inicio_ts muy negativo (< -1_000_000_000 ms) ──
+          // El valor guardado es -(inicio_ts original), así que Math.abs recupera el inicio real.
+          // • Compañero → logout inmediato
+          // • Líder     → borra sentinel y reanuda contador desde el inicio_ts original
+          if (saved && saved.inicio_ts < -1000000000) {
             if (esCompanero) {
               if (typeof onLogout === "function") onLogout();
             } else {
-              // El líder vuelve a entrar: limpiar sentinel y arrancar timer fresco
+              // Recuperar el inicio_ts original y reanudar el contador
+              const inicioOriginal = Math.abs(saved.inicio_ts);
               fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
                 { method: "DELETE" })
                 .catch(() => {})
                 .finally(() => {
-                  const inicio = Date.now();
-                  saveTimer(inicio, durSeg);
-                  startCountdown(inicio);
+                  const elapsed = Math.floor((Date.now() - inicioOriginal) / 1000);
+                  if (elapsed < durSeg) {
+                    // Tiempo aún vigente: reanudar desde el mismo inicio_ts
+                    saveTimer(inicioOriginal, durSeg);
+                    startCountdown(inicioOriginal);
+                  } else {
+                    // Ya expiró mientras estaba desconectado
+                    saveTimer(inicioOriginal, durSeg);
+                    setTiempoTranscurrido(durSeg);
+                    setTiempoRestante(0);
+                    tiempoRestanteRef.current = 0;
+                    setTiempoFinalizado(true);
+                  }
                 });
             }
             return;
@@ -2740,12 +2754,14 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
     // Solo se guarda el sentinel -1 si el timer está activo (hay inicio_ts en BD).
     const cerrarSesionLider = () => {
       if (esCompanero) return; // solo el líder dispara esto
-      // Solo enviar sentinel si el timer está actualmente corriendo
-      if (!countdownRef.current && tiempoRestanteRef.current === null) return;
+      // Solo actuar si el timer tiene un inicio guardado
+      const inicioOriginal = tiempoInicioRef.current;
+      if (!inicioOriginal || inicioOriginal <= 0) return;
       clearInterval(countdownRef.current);
       countdownRef.current = null;
-      // Sentinel -1 = "líder cerró sesión" → compañeros harán logout al detectarlo
-      saveTimerBeacon(-1, durSeg);
+      // Guardar -(inicio_ts original): los compañeros detectan valor muy negativo → logout.
+      // El líder al volver lee Math.abs(valor) y recupera el inicio_ts exacto → continúa desde ahí.
+      saveTimerBeacon(-inicioOriginal, durSeg);
     };
 
     // pagehide = cierre real de pestaña/navegador → logout para todos
@@ -2765,15 +2781,14 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
           const saved = data?.timer;
           if (!saved) return;
 
-          // ── SENTINEL -1: señal de sesión cerrada ───────────────────────────
-          // Compañero → logout. Líder → ya manejado en initTimer al reconectar.
-          if (saved.inicio_ts === -1) {
+          // ── SENTINEL sesión cerrada (valor muy negativo < -1_000_000_000) ────────────
+          // Solo los compañeros reaccionan aquí. El líder lo maneja en initTimer al volver.
+          if (saved.inicio_ts < -1000000000) {
             if (esCompanero) {
               clearInterval(countdownRef.current);
               countdownRef.current = null;
               if (typeof onLogout === "function") onLogout();
             }
-            // El líder nunca llega aquí con -1 activo: initTimer lo borró al reconectar
             return;
           }
 
