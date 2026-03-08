@@ -2680,17 +2680,31 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
         .then(data => {
           const saved = data?.timer;
 
-          // SENTINEL -1: líder cerró sesión → todos hacen logout
+          // ── SENTINEL -1: señal de "líder cerró sesión" ──────────────────────
+          // • Compañero  → hace logout (el líder cerró y terminó la sesión de todos)
+          // • Líder      → borra el sentinel y crea un timer nuevo (está volviendo a entrar)
           if (saved && saved.inicio_ts === -1) {
-            if (typeof onLogout === "function") onLogout();
+            if (esCompanero) {
+              if (typeof onLogout === "function") onLogout();
+            } else {
+              // El líder vuelve a entrar: limpiar sentinel y arrancar timer fresco
+              fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
+                { method: "DELETE" })
+                .catch(() => {})
+                .finally(() => {
+                  const inicio = Date.now();
+                  saveTimer(inicio, durSeg);
+                  startCountdown(inicio);
+                });
+            }
             return;
           }
 
-          // CASO 1 — Timer CORRIENDO (inicio_ts positivo normal)
+          // ── CASO 1 — Timer CORRIENDO (inicio_ts positivo) ────────────────────
           if (saved && saved.inicio_ts > 0) {
             const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
             if (elapsed < durSeg) {
-              startCountdown(saved.inicio_ts); // compañero arranca desde el mismo punto
+              startCountdown(saved.inicio_ts); // ambos arrancan desde el mismo punto
             } else {
               // Expiró mientras estaba fuera
               setTiempoRestante(0);
@@ -2705,13 +2719,13 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
             return;
           }
 
-          // CASO 3 — Sin timer guardado → solo el LÍDER crea uno nuevo
+          // ── CASO 3 — Sin timer en BD → solo el LÍDER crea uno nuevo ──────────
           if (!esCompanero) {
             const inicio = Date.now();
             saveTimer(inicio, durSeg);
             startCountdown(inicio);
           }
-          // Si es compañero y no hay timer aún → esperar al sync (el líder aún no inició)
+          // Si es compañero y no hay timer aún → el syncInterval lo detectará en 6s
         })
         .catch(() => {
           // Sin red: solo el líder arranca localmente
@@ -2723,13 +2737,14 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
 
     // ── CIERRE DE SESIÓN del líder (pagehide = cierre real de pestaña/navegador) ──
     // Minimizar, cambiar de app o abrir otra pestaña NO interrumpe el timer.
-    // El contador ascendente usa Date.now() - inicio_ts, por lo que siempre
-    // es correcto independientemente de si la pestaña está visible o no.
+    // Solo se guarda el sentinel -1 si el timer está activo (hay inicio_ts en BD).
     const cerrarSesionLider = () => {
       if (esCompanero) return; // solo el líder dispara esto
+      // Solo enviar sentinel si el timer está actualmente corriendo
+      if (!countdownRef.current && tiempoRestanteRef.current === null) return;
       clearInterval(countdownRef.current);
       countdownRef.current = null;
-      // Sentinel -1 = "líder cerró sesión definitivamente" → compañeros harán logout
+      // Sentinel -1 = "líder cerró sesión" → compañeros harán logout al detectarlo
       saveTimerBeacon(-1, durSeg);
     };
 
@@ -2750,20 +2765,30 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
           const saved = data?.timer;
           if (!saved) return;
 
-          // ── SENTINEL -1: líder cerró sesión → logout para todos ──────────
+          // ── SENTINEL -1: señal de sesión cerrada ───────────────────────────
+          // Compañero → logout. Líder → ya manejado en initTimer al reconectar.
           if (saved.inicio_ts === -1) {
-            clearInterval(countdownRef.current);
-            countdownRef.current = null;
-            if (typeof onLogout === "function") onLogout();
+            if (esCompanero) {
+              clearInterval(countdownRef.current);
+              countdownRef.current = null;
+              if (typeof onLogout === "function") onLogout();
+            }
+            // El líder nunca llega aquí con -1 activo: initTimer lo borró al reconectar
             return;
           }
 
-          // ── CASO B: Timer corriendo en BD pero intervalo local detenido → reanudar ──
-          // (puede pasar si el compañero recargó la app o hubo fallo de red)
+          // ── CASO B: Timer corriendo en BD pero intervalo local detenido → arrancar ──
+          // Cubre: compañero que acaba de entrar, recarga de app, fallo de red
           if (saved.inicio_ts > 0 && !countdownRef.current) {
-            const restanteDB = Math.max(0, durSeg - Math.floor((Date.now() - saved.inicio_ts) / 1000));
-            if (restanteDB > 0) {
+            const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
+            if (elapsed < durSeg) {
               startCountdown(saved.inicio_ts);
+            } else {
+              // Timer ya expiró
+              setTiempoTranscurrido(durSeg);
+              setTiempoRestante(0);
+              tiempoRestanteRef.current = 0;
+              setTiempoFinalizado(true);
             }
           }
           // ── CASO C: Todos corriendo → sin acción (intervalo local es fuente de verdad) ──
