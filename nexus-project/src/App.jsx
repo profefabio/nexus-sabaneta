@@ -2509,14 +2509,17 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   const retoCompleto = interactionCount >= MAX_INT;
 
-  // ── Contador regresivo del reto (basado en duracion del reto) ──
-  const [tiempoRestante, setTiempoRestante]   = useState(null); // segundos
-  const [tiempoAlerta, setTiempoAlerta]       = useState(false);
+  // ── Contador ascendente del reto (basado en duracion del reto) ──
+  const [tiempoTranscurrido, setTiempoTranscurrido] = useState(null); // seg transcurridos (cuenta UP)
+  const [tiempoRestante, setTiempoRestante]   = useState(null); // seg restantes (solo para BD pausa/resume)
+  const [tiempoFinalizado, setTiempoFinalizado] = useState(false); // reto expiró
   const [tiempoInicio, setTiempoInicio]       = useState(null); // timestamp inicio
   const countdownRef      = useRef(null);
-  // Ref siempre actualizado con el valor actual de tiempoRestante
-  // (necesario para event listeners de pausa/resume sin stale closure)
+  // Refs siempre actualizados (sin stale-closure en event listeners)
   const tiempoRestanteRef  = useRef(null);
+  const durSegRef          = useRef(null); // duración total del reto en segundos
+  // Milestones ya notificados en el chat: Set de porcentajes (50, 75, 87, 100)
+  const milestonesEnviadosRef = useRef(new Set());
   // Ref para evitar re-detectar el reto automáticamente más de una vez por sesión
   const retoAutoDetectado  = useRef(false);
   // Ref para evitar que el timer se reinicie si ya está corriendo para el mismo reto
@@ -2529,14 +2532,17 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   // Al volver, se detecta el valor negativo y se reanuda exactamente donde quedó.
   useEffect(() => {
     // ── Guardia: no reiniciar si ya corre el timer para este mismo reto ──
+    // IMPORTANTE: usar tiempoRestanteRef.current (no state) para evitar stale closure
     const retoIdActual = String(retoActual?.id ?? "");
-    if (timerRetoActivoRef.current === retoIdActual && retoIdActual !== "" && tiempoRestante !== null && tiempoRestante > 0) {
+    if (timerRetoActivoRef.current === retoIdActual && retoIdActual !== "" && tiempoRestanteRef.current !== null && tiempoRestanteRef.current > 0) {
       return; // ya está corriendo, no interrumpir
     }
 
     clearInterval(countdownRef.current);
-    setTiempoAlerta(false);
+    countdownRef.current = null;
     setTiempoRestante(null);
+    setTiempoTranscurrido(null);
+    setTiempoFinalizado(false);
     timerRetoActivoRef.current = null;
 
     // FIX: si duracion no está en retoActual (sesión restaurada), buscar en misionData
@@ -2590,24 +2596,74 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       } catch (_) { saveTimer(inicio_ts, duracion_seg); }
     };
 
-    // ── Arrancar contador desde un inicio_ts real (positivo) ──
+    // ── Arrancar contador ascendente desde un inicio_ts real (positivo) ──
     const startCountdown = (inicio) => {
       // Limpiar intervalo previo para evitar duplicados
       if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
       setTiempoInicio(inicio);
-      const initialRestante = Math.max(0, durSeg - Math.floor((Date.now() - inicio) / 1000));
-      setTiempoRestante(initialRestante);
-      tiempoRestanteRef.current = initialRestante;
+      durSegRef.current = durSeg; // guardar duración total para acceso sin stale closure
+
+      // Calcular valores iniciales
+      const elapsedInit = Math.min(durSeg, Math.floor((Date.now() - inicio) / 1000));
+      const restanteInit = Math.max(0, durSeg - elapsedInit);
+      setTiempoTranscurrido(elapsedInit);
+      setTiempoRestante(restanteInit);
+      tiempoRestanteRef.current = restanteInit;
       timerRetoActivoRef.current = String(retoActual?.id ?? ""); // marcar reto activo
-      if (initialRestante <= 0) return;
+
+      // Si ya expiró al cargar (volvió después de que se acabó el tiempo)
+      if (restanteInit <= 0) {
+        setTiempoFinalizado(true);
+        setTiempoTranscurrido(durSeg);
+        return;
+      }
+
+      // ── Función para enviar milestone al chat ─────────────────────────────
+      const formatDuracion = (seg) => {
+        const d = Math.floor(seg / 86400);
+        const h = Math.floor((seg % 86400) / 3600);
+        const m = Math.floor((seg % 3600) / 60);
+        if (d > 0) return `${d} día${d>1?"s":""}${h>0?` y ${h}h`:""}`;
+        if (h > 0) return `${h}h ${String(m).padStart(2,"0")}m`;
+        return `${m} minuto${m!==1?"s":""}`;
+      };
+
+      const enviarMilestone = (pct, restanteSeg) => {
+        if (milestonesEnviadosRef.current.has(pct)) return;
+        milestonesEnviadosRef.current.add(pct);
+        const restanteStr = formatDuracion(restanteSeg);
+        let msg = "";
+        if (pct === 50)  msg = `⏱️ **¡A mitad del camino!** Han usado el 50% del tiempo asignado para este reto.
+⏳ Les queda aproximadamente **${restanteStr}** — ¡sigan así! 💪`;
+        if (pct === 75)  msg = `⚠️ **¡75% del tiempo utilizado!** Solo queda el 25%.
+⏳ Tiempo restante: **${restanteStr}** — enfóquense en las ideas principales. 🎯`;
+        if (pct === 87)  msg = `🚨 **¡Casi sin tiempo!** Han usado el 87% del tiempo.
+⏳ Quedan aproximadamente **${restanteStr}** — presenten lo que tienen. 🏃`;
+        if (pct === 100) msg = `⏰ **¡Tiempo finalizado!** El tiempo asignado para este reto ha concluido.
+El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que lograron! 🏁`;
+        if (msg) {
+          setMsgs(prev => [...prev, { role: "assistant", content: msg }]);
+        }
+      };
 
       countdownRef.current = setInterval(() => {
-        const restante = Math.max(0, durSeg - Math.floor((Date.now() - inicio) / 1000));
+        const elapsed = Math.min(durSeg, Math.floor((Date.now() - inicio) / 1000));
+        const restante = Math.max(0, durSeg - elapsed);
+        setTiempoTranscurrido(elapsed);
         setTiempoRestante(restante);
         tiempoRestanteRef.current = restante;
-        setTiempoAlerta(restante > 0 && restante <= Math.min(600, durSeg * 0.2));
+
+        // ── Verificar milestones ────────────────────────────────────────────
+        const pctUsado = durSeg > 0 ? (elapsed / durSeg) * 100 : 0;
+        if (pctUsado >= 50  && pctUsado < 55)  enviarMilestone(50,  restante);
+        if (pctUsado >= 75  && pctUsado < 80)  enviarMilestone(75,  restante);
+        if (pctUsado >= 87  && pctUsado < 92)  enviarMilestone(87,  restante);
+
         if (restante <= 0) {
           clearInterval(countdownRef.current);
+          countdownRef.current = null;
+          setTiempoFinalizado(true);
+          enviarMilestone(100, 0);
           fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
             { method: "DELETE" }).catch(() => {});
         }
@@ -2627,6 +2683,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
             if (restanteSeg <= 0) {
               setTiempoRestante(0);
               tiempoRestanteRef.current = 0;
+              setTiempoTranscurrido(durSeg);
+              setTiempoFinalizado(true);
               return;
             }
             // Convertir a inicio_ts corrido: ajustar como si hubiera empezado
@@ -2638,7 +2696,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
           }
 
           // CASO 2 — Timer CORRIENDO (inicio_ts positivo normal)
-          if (saved && saved.inicio_ts > 0 && saved.duracion_seg === durSeg) {
+          if (saved && saved.inicio_ts > 0) {
             const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
             if (elapsed < durSeg) {
               startCountdown(saved.inicio_ts);
@@ -2646,6 +2704,8 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
               // Expiró mientras estaba fuera
               setTiempoRestante(0);
               tiempoRestanteRef.current = 0;
+              setTiempoTranscurrido(durSeg);
+              setTiempoFinalizado(true);
               fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
                 { method: "DELETE" }).catch(() => {});
             }
@@ -2689,57 +2749,40 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     window.addEventListener("pagehide", handlePageHide);
 
     // ── SINCRONIZACIÓN PERIÓDICA: todos los miembros del equipo ──────────────
-    // Cada 5 segundos se consulta el estado real del timer en BD.
-    // Esto garantiza que:
-    //   • Los compañeros ven el mismo tiempo que el líder.
-    //   • Si el líder sale (pausa), los compañeros congelan su cuenta.
-    //   • Si el líder vuelve (reanuda), los compañeros reanudan exacto.
-    // El líder también sincroniza por si abrió la sesión en otro dispositivo.
+    // Cada 8 segundos consulta la BD para detectar si el líder pausó o reanudó.
+    // Solo reacciona a cambios de estado (pausado ↔ corriendo), no reinicia el timer.
     const syncInterval = setInterval(() => {
-      // Solo sincronizar si el timer está activo
-      if (tiempoRestanteRef.current === null || tiempoRestanteRef.current <= 0) return;
-
       fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
         .then(r => r.json())
         .then(data => {
           const saved = data?.timer;
           if (!saved) return;
 
-          // CASO: Timer PAUSADO en BD (líder cerró pestaña/app) → congelar local
+          // CASO A: Líder pausó (inicio_ts negativo) → congelar si estamos corriendo
           if (saved.inicio_ts < 0) {
-            const restanteSeg = Math.max(0, Math.abs(saved.inicio_ts) / 1000);
-            // Solo congelar si actualmente estamos corriendo (evitar re-renders innecesarios)
-            if (tiempoRestanteRef.current > 0 && countdownRef.current) {
+            if (countdownRef.current) {
               clearInterval(countdownRef.current);
               countdownRef.current = null;
+              const restanteSeg = Math.max(0, Math.abs(saved.inicio_ts) / 1000);
+              const elapsedCongelado = Math.max(0, durSeg - restanteSeg);
               setTiempoRestante(Math.round(restanteSeg));
               tiempoRestanteRef.current = Math.round(restanteSeg);
-              setTiempoAlerta(restanteSeg > 0 && restanteSeg <= Math.min(600, durSeg * 0.2));
+              setTiempoTranscurrido(Math.round(elapsedCongelado));
             }
             return;
           }
 
-          // CASO: Timer CORRIENDO en BD → verificar si nuestro local está desfasado
-          if (saved.inicio_ts > 0 && saved.duracion_seg === durSeg) {
+          // CASO B: Líder reanudó (inicio_ts positivo) → reanudar si estamos congelados
+          if (saved.inicio_ts > 0 && !countdownRef.current) {
             const restanteDB = Math.max(0, durSeg - Math.floor((Date.now() - saved.inicio_ts) / 1000));
-            const restanteLocal = tiempoRestanteRef.current ?? 0;
-
-            // Si el intervalo local fue cancelado (estaba pausado) y el DB dice "corriendo" → reanudar
-            if (!countdownRef.current && restanteDB > 0) {
-              startCountdown(saved.inicio_ts);
-              return;
-            }
-
-            // Si hay desincronización mayor a 5 segundos → re-sincronizar
-            if (Math.abs(restanteLocal - restanteDB) > 5 && restanteDB > 0) {
-              clearInterval(countdownRef.current);
-              countdownRef.current = null;
+            if (restanteDB > 0) {
               startCountdown(saved.inicio_ts);
             }
           }
+          // CASO C: Ambos corriendo → no hacer nada (el interval local es la fuente de verdad)
         })
-        .catch(() => {}); // Sin red: mantener countdown local
-    }, 5000); // Cada 5 segundos
+        .catch(() => {}); // Sin red: mantener estado local
+    }, 8000); // Cada 8 segundos
 
     return () => {
       clearInterval(countdownRef.current);
@@ -2751,18 +2794,16 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   // primero sin duracion y luego se enriquece → sin esta dep el effect no re-corre
   }, [retoActual?.id, retoActual?.duracion, misionData?.id]); // eslint-disable-line
 
-  // Formatear tiempo restante para mostrar en UI
-  const formatTiempo = (seg) => {
-    if (seg === null) return null;
-    if (seg <= 0) return "⏰ ¡Tiempo!";
+  // Formatear tiempo transcurrido para mostrar en UI (cuenta ascendente)
+  const formatElapsed = (seg) => {
+    if (seg === null || seg === undefined) return null;
     const d = Math.floor(seg / 86400);
     const h = Math.floor((seg % 86400) / 3600);
     const m = Math.floor((seg % 3600) / 60);
     const s = seg % 60;
     if (d > 0) return `${d}d ${String(h).padStart(2,"0")}h ${String(m).padStart(2,"0")}m`;
     if (h > 0) return `${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`;
-    if (m > 0) return `${m}m ${String(s).padStart(2,"0")}s`;
-    return `${s}s`;
+    return `${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`;
   };
 
   // Reset al cambiar de MISIÓN — carga XP acumulado desde la BD
@@ -2774,8 +2815,11 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     setShowPasteWarning(false);
     setHistorialPrevio([]);
     setShowHistPrevio(false);
+    setTiempoTranscurrido(null);
+    setTiempoFinalizado(false);
     retoAutoDetectado.current = false;  // resetear al cambiar de misión
     timerRetoActivoRef.current = null;  // forzar reinicio del timer al cambiar misión
+    milestonesEnviadosRef.current = new Set();
     setMsgs([{ role:"assistant", content: welcomeMsg }]);
 
     // Cargar XP real desde Supabase para esta misión
@@ -2797,6 +2841,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     setShowHistPrevio(false);
     setXpEnEsteReto(0);     // resetear XP de este reto
     setListoParaAvanzar(false); // resetear bandera de avance
+    milestonesEnviadosRef.current = new Set(); // resetear milestones del timer
 
     const retoId = retoActual?.id ?? null;
     const retoTitle = retoActual?.title || "";
@@ -2851,7 +2896,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   useEffect(() => { endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
 
-  // Mantener ref sincronizado con el estado actual (para event listeners de visibilidad)
+  // Mantener refs sincronizados con estados (para event listeners sin stale closure)
   useEffect(() => { tiempoRestanteRef.current = tiempoRestante; }, [tiempoRestante]);
 
   // ── Auto-detectar reto activo consultando la tabla de timers ────────
@@ -3110,36 +3155,27 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
         </div>
         <span style={{ fontSize:isMobile?10:9, color:C.muted, fontFamily:"'Orbitron',monospace", flexShrink:0 }}>{xp} XP</span>
         {user&&<span style={{ fontSize:isMobile?11:10, fontWeight:800, color:notaColor(xpToNota(xp)), fontFamily:"'Orbitron',monospace", background:C.card, padding:"2px 8px", borderRadius:6, border:`1px solid ${notaColor(xpToNota(xp))}55`, flexShrink:0 }}>▶ {xpToNota(xp).toFixed(1)}</span>}
-        {/* ⏱️ Contador regresivo del reto */}
-        {tiempoRestante !== null && (
+        {/* ⏱️ Contador ascendente del reto */}
+        {tiempoTranscurrido !== null && (
           <span style={{
             fontSize:10, fontWeight:800, fontFamily:"'Orbitron',monospace",
-            background: tiempoRestante<=0 ? "#ef444422" : tiempoAlerta ? "#f9731622" : `${C.accent}15`,
-            color: tiempoRestante<=0 ? "#ef4444" : tiempoAlerta ? "#f97316" : C.accent,
+            background: tiempoFinalizado ? "#ef444422" : !countdownRef.current && tiempoTranscurrido > 0 ? "#f9731622" : `${C.accent}15`,
+            color: tiempoFinalizado ? "#ef4444" : !countdownRef.current && tiempoTranscurrido > 0 ? "#f97316" : C.accent,
             padding:"1px 7px", borderRadius:6,
-            border:`1px solid ${tiempoRestante<=0?"#ef444455":tiempoAlerta?"#f9731655":C.accent+"55"}`,
-            animation: tiempoAlerta && tiempoRestante > 0 ? "pulse 1s infinite" : "none",
+            border:`1px solid ${tiempoFinalizado?"#ef444455":!countdownRef.current&&tiempoTranscurrido>0?"#f9731655":C.accent+"55"}`,
             display:"flex", alignItems:"center", gap:4
           }}>
-            ⏱️ {formatTiempo(tiempoRestante)}
+            {tiempoFinalizado ? "⏰" : !countdownRef.current && tiempoTranscurrido > 0 ? "⏸" : "⏱️"} {formatElapsed(tiempoTranscurrido)}
           </span>
         )}
         {xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:11, color:C.accent3, fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:`1px solid ${C.accent3}` }}>+{xpAnim} XP ✨</span>}
       </div>
-      {/* ⚠️ Alerta tiempo crítico */}
-      {tiempoAlerta && tiempoRestante > 0 && !compact && (
-        <div style={{ background:"#f9731615", borderBottom:"1px solid #f9731633",
-          padding:"5px 14px", fontSize:11, color:"#f97316", display:"flex",
+      {/* ⏸ Banner de timer pausado (líder salió de la app) */}
+      {tiempoTranscurrido !== null && !tiempoFinalizado && !countdownRef.current && tiempoTranscurrido > 0 && !compact && (
+        <div style={{ background:"#f9731610", borderBottom:"1px solid #f9731633",
+          padding:"4px 14px", fontSize:11, color:"#f97316", display:"flex",
           alignItems:"center", gap:6, flexShrink:0 }}>
-          ⚠️ <strong>¡Atención!</strong> Quedan {formatTiempo(tiempoRestante)} para completar el reto.
-          {tiempoRestante <= 60 && <strong style={{ color:"#ef4444" }}> ¡Menos de 1 minuto!</strong>}
-        </div>
-      )}
-      {tiempoRestante === 0 && !compact && (
-        <div style={{ background:"#ef444415", borderBottom:"1px solid #ef444433",
-          padding:"6px 14px", fontSize:11, color:"#ef4444", display:"flex",
-          alignItems:"center", gap:6, fontWeight:700, flexShrink:0 }}>
-          ⏰ ¡El tiempo del reto ha terminado! El docente puede ver tu progreso hasta este punto.
+          ⏸ <strong>Timer pausado</strong> — reanudará cuando el líder vuelva a la app.
         </div>
       )}
 
