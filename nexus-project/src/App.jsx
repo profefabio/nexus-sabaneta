@@ -1467,6 +1467,7 @@ function AdminView({ user, onLogout }) {
       {tab==="equipos"&&<EquiposPanel user={user} />}
       {tab==="chats"&&<ChatInformePanel user={user} />}
       {tab==="anuncios"&&<AnunciosPanel user={user} />}
+      {tab==="control"&&<ControlRetosPanel user={user} misiones={misiones} />}
       {tab==="users"&&<AdminUsuarios />}
     </Layout>
   );
@@ -1485,6 +1486,7 @@ function TeacherView({ user, onLogout }) {
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
       {id:"missions",icon:"🗺️",label:"Mis Misiones"},{id:"equipos",icon:"👥",label:"Equipos"},
+      {id:"control",icon:"🔒",label:"Control Retos"},
       {id:"chats",icon:"💬",label:"Informes Chat"},{id:"anuncios",icon:"📢",label:"Anuncios"},{id:"config",icon:"⚙️",label:"Mi NEXUS"},{id:"preview",icon:"👁️",label:"Vista previa"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
@@ -1507,6 +1509,7 @@ function TeacherView({ user, onLogout }) {
         </Page>
       )}
       {tab==="anuncios"&&<AnunciosPanel user={user} />}
+      {tab==="control"&&<ControlRetosPanel user={user} misiones={misiones} />}
       {tab==="preview"&&<Page title="Vista previa"><NexusChat prompt={buildPrompt(cfg.subject||"Tecnología",cfg.grade,cfg.topics)} userName="Explorador" compact user={null} misionId={null} /></Page>}
     </Layout>
   );
@@ -2478,28 +2481,6 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva
 //              Graduación progresiva · Protección anti-copia
 // ═══════════════════════════════════════════════════════════════
 function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle, retoActual, setRetoActual, todosRetos, onLogout }) {
-  // Al cerrar sesión explícitamente, guardar sentinel de logout en BD para los compañeros
-  const notificarLogoutEquipo = useCallback(() => {
-    const esLider = equipo?.liderId && String(equipo.liderId) === String(user?.id);
-    if (!esLider || !equipo || !retoActual?.id || !misionId) return;
-    const estudianteId = String(user.id);
-    const retoId = String(retoActual.id);
-    const misionIdStr = String(misionId);
-    // Guardar sentinel -999 en BD → compañeros detectan en sync y hacen logout
-    try {
-      const blob = new Blob(
-        [JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
-          mision_id: misionIdStr, inicio_ts: -999, duracion_seg: 1 })],
-        { type: "application/json" }
-      );
-      navigator.sendBeacon("/api/timer", blob);
-    } catch(_) {
-      fetch("/api/timer", { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
-          mision_id: misionIdStr, inicio_ts: -999, duracion_seg: 1 })
-      }).catch(()=>{});
-    }
-  }, [equipo, user, retoActual, misionId]);
   const isMobile = useIsMobile();
 
   const welcomeMsg = misionData
@@ -2532,319 +2513,32 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
   const retoCompleto = interactionCount >= MAX_INT;
 
-  // ── Contador ascendente del reto (basado en duracion del reto) ──
-  const [tiempoTranscurrido, setTiempoTranscurrido] = useState(null); // seg transcurridos (cuenta UP)
-  const [tiempoRestante, setTiempoRestante]   = useState(null); // seg restantes (solo para BD pausa/resume)
-  const [tiempoFinalizado, setTiempoFinalizado] = useState(false); // reto expiró
-  const [tiempoInicio, setTiempoInicio]       = useState(null); // timestamp inicio
-  const countdownRef      = useRef(null);
-  // Refs siempre actualizados (sin stale-closure en event listeners)
-  const tiempoRestanteRef  = useRef(null);
-  const tiempoInicioRef    = useRef(null); // timestamp de inicio (para cerrar sesión conservando tiempo)
-  const durSegRef          = useRef(null); // duración total del reto en segundos
-  // Milestones ya notificados en el chat: Set de porcentajes (50, 75, 87, 100)
-  const milestonesEnviadosRef = useRef(new Set());
+  // ── Bloqueo de reto por docente ──────────────────────────────
+  const [retoBloqueado, setRetoBloqueado] = useState(false);
   // Ref para evitar re-detectar el reto automáticamente más de una vez por sesión
   const retoAutoDetectado  = useRef(false);
-  // Ref para evitar que el timer se reinicie si ya está corriendo para el mismo reto
-  const timerRetoActivoRef = useRef(null); // ID del reto cuyo timer ya está corriendo
 
-  // ── Timer del reto ─────────────────────────────────────────────
-  // El contador es ASCENDENTE (00:00 → duración).
-  // Usa Date.now() - inicio_ts para calcular el tiempo transcurrido en cada tick,
-  // por lo que minimizar, cambiar de app u ocultar la pestaña NO reinicia el contador.
-  // Solo pagehide (cierre real) guarda el sentinel -1 para logout de todos.
+  // ── Polling: detectar si el docente bloqueó el reto actual ────────────
   useEffect(() => {
-    // ── Guardia: no reiniciar si ya corre el timer para este mismo reto ──
-    // IMPORTANTE: usar tiempoRestanteRef.current (no state) para evitar stale closure
-    const retoIdActual = String(retoActual?.id ?? "");
-    if (timerRetoActivoRef.current === retoIdActual && retoIdActual !== "" && tiempoRestanteRef.current !== null && tiempoRestanteRef.current > 0) {
-      return; // ya está corriendo, no interrumpir
-    }
+    if (!retoActual?.id || !misionId) { setRetoBloqueado(false); return; }
+    const retoId     = String(retoActual.id);
+    const misionIdStr = String(misionId);
 
-    clearInterval(countdownRef.current);
-    countdownRef.current = null;
-    setTiempoRestante(null);
-    setTiempoTranscurrido(null);
-    setTiempoFinalizado(false);
-    timerRetoActivoRef.current = null;
-
-    // FIX: si duracion no está en retoActual (sesión restaurada), buscar en misionData
-    const retoEnMision = misionData?.retos?.find(r => String(r.id) === String(retoActual?.id));
-    const dur = retoActual?.duracion || retoEnMision?.duracion;
-    console.log("[NEXUS TIMER] retoActual.id =", retoActual?.id);
-    console.log("[NEXUS TIMER] retoActual.duracion =", JSON.stringify(retoActual?.duracion));
-    console.log("[NEXUS TIMER] misionData =", misionData ? "CARGADO" : "NULL");
-    console.log("[NEXUS TIMER] misionData.retos =", JSON.stringify(misionData?.retos?.map(r => ({id:r.id, dur:r.duracion, tipo:r.tipo_duracion}))));
-    console.log("[NEXUS TIMER] retoEnMision =", JSON.stringify(retoEnMision ? {id:retoEnMision.id, dur:retoEnMision.duracion} : null));
-    console.log("[NEXUS TIMER] dur final =", JSON.stringify(dur));
-    if (!dur || dur === "" || dur === "0" || Number(dur) <= 0) {
-      console.log("[NEXUS TIMER] ❌ ABORTANDO — dur inválida:", JSON.stringify(dur));
-      return;
-    }
-
-    const tipoDuracion = retoActual?.tipo_duracion || retoEnMision?.tipo_duracion || "horas";
-    const esDias  = tipoDuracion === "dias";
-    const durSeg  = esDias ? Number(dur) * 86400 : Number(dur) * 3600;
-    if (!durSeg || durSeg <= 0) {
-      console.log("[NEXUS TIMER] ABORTANDO — durSeg inválida:", durSeg);
-      return;
-    }
-    console.log("[NEXUS TIMER] INICIANDO countdown — durSeg:", durSeg, "duracion:", dur, tipoDuracion);
-
-    // Para compañeros: el timer se guarda bajo el ID del líder
-    const esCompanero  = equipo?.liderId && String(equipo.liderId) !== String(user?.id);
-    const estudianteId = esCompanero ? String(equipo.liderId) : (user?.id || "anon");
-    const retoId       = String(retoActual.id);
-    const misionIdStr  = String(misionId || "");
-
-    // ── Helpers para guardar timer en BD ──────────────────────
-    const saveTimer = (inicio_ts, duracion_seg) => {
-      fetch("/api/timer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
-          mision_id: misionIdStr, inicio_ts, duracion_seg }),
-      }).catch(() => {});
-    };
-
-    // sendBeacon: garantiza el envío incluso al cerrar la pestaña
-    const saveTimerBeacon = (inicio_ts, duracion_seg) => {
-      try {
-        const blob = new Blob(
-          [JSON.stringify({ estudiante_id: estudianteId, reto_id: retoId,
-            mision_id: misionIdStr, inicio_ts, duracion_seg })],
-          { type: "application/json" }
-        );
-        if (!navigator.sendBeacon("/api/timer", blob)) saveTimer(inicio_ts, duracion_seg);
-      } catch (_) { saveTimer(inicio_ts, duracion_seg); }
-    };
-
-    // ── Arrancar contador ascendente desde un inicio_ts real (positivo) ──
-    const startCountdown = (inicio) => {
-      // Limpiar intervalo previo para evitar duplicados
-      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
-      setTiempoInicio(inicio);
-      tiempoInicioRef.current = inicio;    // ref para acceso sin stale closure
-      durSegRef.current = durSeg; // guardar duración total para acceso sin stale closure
-      // Guardar en localStorage como respaldo (por si BD tarda o falla al reconectar)
-      try {
-        const lsKey = `nexus_timer_${estudianteId}_${retoId}_${misionIdStr}`;
-        localStorage.setItem(lsKey, JSON.stringify({ inicio_ts: inicio, duracion_seg: durSeg }));
-      } catch(_) {}
-
-      // Calcular valores iniciales
-      const elapsedInit = Math.min(durSeg, Math.floor((Date.now() - inicio) / 1000));
-      const restanteInit = Math.max(0, durSeg - elapsedInit);
-      setTiempoTranscurrido(elapsedInit);
-      setTiempoRestante(restanteInit);
-      tiempoRestanteRef.current = restanteInit;
-      timerRetoActivoRef.current = String(retoActual?.id ?? ""); // marcar reto activo
-
-      // Si ya expiró al cargar (volvió después de que se acabó el tiempo)
-      if (restanteInit <= 0) {
-        setTiempoFinalizado(true);
-        setTiempoTranscurrido(durSeg);
-        return;
-      }
-
-      // ── Función para enviar milestone al chat ─────────────────────────────
-      const formatDuracion = (seg) => {
-        const d = Math.floor(seg / 86400);
-        const h = Math.floor((seg % 86400) / 3600);
-        const m = Math.floor((seg % 3600) / 60);
-        if (d > 0) return `${d} día${d>1?"s":""}${h>0?` y ${h}h`:""}`;
-        if (h > 0) return `${h}h ${String(m).padStart(2,"0")}m`;
-        return `${m} minuto${m!==1?"s":""}`;
-      };
-
-      const enviarMilestone = (pct, restanteSeg) => {
-        if (milestonesEnviadosRef.current.has(pct)) return;
-        milestonesEnviadosRef.current.add(pct);
-        const restanteStr = formatDuracion(restanteSeg);
-        let msg = "";
-        if (pct === 50)  msg = `⏱️ **¡A mitad del camino!** Han usado el 50% del tiempo asignado para este reto.
-⏳ Les queda aproximadamente **${restanteStr}** — ¡sigan así! 💪`;
-        if (pct === 75)  msg = `⚠️ **¡75% del tiempo utilizado!** Solo queda el 25%.
-⏳ Tiempo restante: **${restanteStr}** — enfóquense en las ideas principales. 🎯`;
-        if (pct === 87)  msg = `🚨 **¡Casi sin tiempo!** Han usado el 87% del tiempo.
-⏳ Quedan aproximadamente **${restanteStr}** — presenten lo que tienen. 🏃`;
-        if (pct === 100) msg = `⏰ **¡Tiempo finalizado!** El tiempo asignado para este reto ha concluido.
-El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que lograron! 🏁`;
-        if (msg) {
-          setMsgs(prev => [...prev, { role: "assistant", content: msg }]);
-        }
-      };
-
-      countdownRef.current = setInterval(() => {
-        const elapsed = Math.min(durSeg, Math.floor((Date.now() - inicio) / 1000));
-        const restante = Math.max(0, durSeg - elapsed);
-        setTiempoTranscurrido(elapsed);
-        setTiempoRestante(restante);
-        tiempoRestanteRef.current = restante;
-
-        // ── Verificar milestones ────────────────────────────────────────────
-        const pctUsado = durSeg > 0 ? (elapsed / durSeg) * 100 : 0;
-        if (pctUsado >= 50  && pctUsado < 55)  enviarMilestone(50,  restante);
-        if (pctUsado >= 75  && pctUsado < 80)  enviarMilestone(75,  restante);
-        if (pctUsado >= 87  && pctUsado < 92)  enviarMilestone(87,  restante);
-
-        if (restante <= 0) {
-          clearInterval(countdownRef.current);
-          countdownRef.current = null;
-          setTiempoFinalizado(true);
-          enviarMilestone(100, 0);
-          fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
-            { method: "DELETE" }).catch(() => {});
-        }
-      }, 1000);
-    };
-
-    // ── Helper: leer respaldo de localStorage ────────────────────────────────
-    const lsKey = `nexus_timer_${estudianteId}_${retoId}_${misionIdStr}`;
-    const leerLocalBackup = () => {
-      try {
-        const raw = localStorage.getItem(lsKey);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (parsed?.inicio_ts > 0 && parsed?.duracion_seg === durSeg) return parsed;
-      } catch(_) {}
-      return null;
-    };
-
-    // ── Cargar timer e iniciar ────────────────────────────────────────────────
-    // Prioridad: BD (fuente de verdad) → localStorage (respaldo) → nuevo timer (solo líder)
-    // El COMPAÑERO es READ-ONLY: nunca escribe en BD, solo lee y sincroniza.
-    const initTimer = () => {
-      fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
+    const checkBloqueo = () => {
+      fetch(`/api/timer?estudiante_id=bloqueo&reto_id=${retoId}&mision_id=${misionIdStr}`)
         .then(r => r.json())
         .then(data => {
-          const saved = data?.timer;
-
-          // ── BD tiene inicio_ts válido → ambos arrancan desde ahí ─────────────
-          if (saved && saved.inicio_ts > 0) {
-            const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
-            if (elapsed < durSeg) {
-              startCountdown(saved.inicio_ts);
-            } else {
-              // Tiempo expiró mientras estaba fuera
-              setTiempoRestante(0);
-              tiempoRestanteRef.current = 0;
-              setTiempoTranscurrido(durSeg);
-              setTiempoFinalizado(true);
-              if (!esCompanero) {
-                fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
-                  { method: "DELETE" }).catch(() => {});
-              }
-            }
-            return;
-          }
-
-          // ── BD vacía o nula → intentar recuperar de localStorage ─────────────
-          const backup = leerLocalBackup();
-          if (backup) {
-            const elapsed = Math.floor((Date.now() - backup.inicio_ts) / 1000);
-            if (elapsed < durSeg) {
-              // Restaurar en BD y arrancar desde el punto correcto
-              if (!esCompanero) saveTimer(backup.inicio_ts, durSeg);
-              startCountdown(backup.inicio_ts);
-            } else {
-              setTiempoRestante(0);
-              tiempoRestanteRef.current = 0;
-              setTiempoTranscurrido(durSeg);
-              setTiempoFinalizado(true);
-            }
-            return;
-          }
-
-          // ── Sin datos en ningún lado → solo el LÍDER crea timer nuevo ─────────
-          if (!esCompanero) {
-            const inicio = Date.now();
-            saveTimer(inicio, durSeg);
-            startCountdown(inicio);
-          }
-          // Compañero: el syncInterval lo detectará cuando el líder inicie
+          setRetoBloqueado(data?.timer?.inicio_ts === -777);
         })
-        .catch(() => {
-          // Sin red: intentar localStorage, si no hay → solo líder arranca local
-          if (!esCompanero) {
-            const backup = leerLocalBackup();
-            startCountdown(backup?.inicio_ts > 0 ? backup.inicio_ts : Date.now());
-          }
-        });
+        .catch(() => {});
     };
 
-    initTimer();
+    checkBloqueo(); // revisar al entrar al reto
+    const poll = setInterval(checkBloqueo, 10000); // cada 10 segundos
+    return () => clearInterval(poll);
+  }, [retoActual?.id, misionId]); // eslint-disable-line
 
-    // ── localStorage como respaldo del inicio_ts ──────────────────────────────
-    // El inicio_ts ya está en BD desde que el timer arrancó.
-    // localStorage es un segundo respaldo por si la lectura de BD falla o llega tarde.
-    // Así el contador SIEMPRE continúa desde donde quedó sin depender de pagehide.
-
-    // ── SINCRONIZACIÓN PERIÓDICA: todos los miembros del equipo ──────────────
-    // Cada 6 segundos consulta la BD para detectar:
-    //   • Sentinel -1: líder cerró sesión → logout inmediato en todos
-    //   • inicio_ts negativo: líder pausó → congelar local
-    //   • inicio_ts positivo + local congelado: líder reanudó → reanudar local
-    const syncInterval = setInterval(() => {
-      fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
-        .then(r => r.json())
-        .then(data => {
-          const saved = data?.timer;
-          if (!saved) return;
-
-          // Sentinel -999: líder cerró sesión explícitamente → logout para compañeros
-          if (saved.inicio_ts === -999) {
-            if (esCompanero) {
-              clearInterval(countdownRef.current);
-              countdownRef.current = null;
-              if (typeof onLogout === "function") onLogout();
-            }
-            return;
-          }
-          // Otros valores negativos o cero → ignorar
-          if (saved.inicio_ts <= 0) return;
-
-          // ── CASO B: Timer corriendo en BD pero intervalo local detenido → arrancar ──
-          // Cubre: compañero que acaba de entrar, recarga de app, fallo de red
-          if (saved.inicio_ts > 0 && !countdownRef.current) {
-            const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
-            if (elapsed < durSeg) {
-              startCountdown(saved.inicio_ts);
-            } else {
-              // Timer ya expiró
-              setTiempoTranscurrido(durSeg);
-              setTiempoRestante(0);
-              tiempoRestanteRef.current = 0;
-              setTiempoFinalizado(true);
-            }
-          }
-          // ── CASO C: Todos corriendo → sin acción (intervalo local es fuente de verdad) ──
-        })
-        .catch(() => {}); // Sin red: mantener estado local
-    }, 6000); // Cada 6 segundos
-
-    return () => {
-      clearInterval(countdownRef.current);
-      clearInterval(syncInterval);
-    };
-  // retoActual?.duracion: necesario porque al restaurar sesión el reto llega
-  // primero sin duracion y luego se enriquece → sin esta dep el effect no re-corre
-  }, [retoActual?.id, retoActual?.duracion, misionData?.id]); // eslint-disable-line
-
-  // Formatear tiempo transcurrido para mostrar en UI (cuenta ascendente)
-  const formatElapsed = (seg) => {
-    if (seg === null || seg === undefined) return null;
-    const d = Math.floor(seg / 86400);
-    const h = Math.floor((seg % 86400) / 3600);
-    const m = Math.floor((seg % 3600) / 60);
-    const s = seg % 60;
-    if (d > 0) return `${d}d ${String(h).padStart(2,"0")}h ${String(m).padStart(2,"0")}m`;
-    if (h > 0) return `${h}h ${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`;
-    return `${String(m).padStart(2,"0")}m ${String(s).padStart(2,"0")}s`;
-  };
-
-  // Reset al cambiar de MISIÓN — carga XP acumulado desde la BD
+    // Reset al cambiar de MISIÓN — carga XP acumulado desde la BD
   useEffect(() => {
     setInteractionCount(0);
     setXp(0); // temporal hasta cargar desde BD
@@ -2853,11 +2547,8 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
     setShowPasteWarning(false);
     setHistorialPrevio([]);
     setShowHistPrevio(false);
-    setTiempoTranscurrido(null);
-    setTiempoFinalizado(false);
+    setRetoBloqueado(false);
     retoAutoDetectado.current = false;  // resetear al cambiar de misión
-    timerRetoActivoRef.current = null;  // forzar reinicio del timer al cambiar misión
-    milestonesEnviadosRef.current = new Set();
     setMsgs([{ role:"assistant", content: welcomeMsg }]);
 
     // Cargar XP real desde Supabase para esta misión
@@ -2877,9 +2568,8 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
     setPasteCount(0);
     setShowPasteWarning(false);
     setShowHistPrevio(false);
-    setXpEnEsteReto(0);     // resetear XP de este reto
-    setListoParaAvanzar(false); // resetear bandera de avance
-    milestonesEnviadosRef.current = new Set(); // resetear milestones del timer
+    setXpEnEsteReto(0);
+    setListoParaAvanzar(false);
 
     const retoId = retoActual?.id ?? null;
     const retoTitle = retoActual?.title || "";
@@ -2934,8 +2624,7 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
 
   useEffect(() => { endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
 
-  // Mantener refs sincronizados con estados (para event listeners sin stale closure)
-  useEffect(() => { tiempoRestanteRef.current = tiempoRestante; }, [tiempoRestante]);
+
 
   // ── Auto-detectar reto activo consultando la tabla de timers ────────
   // Cuando la sesión se restaura, retoActual llega null. Los mensajes no
@@ -3193,22 +2882,24 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
         </div>
         <span style={{ fontSize:isMobile?10:9, color:C.muted, fontFamily:"'Orbitron',monospace", flexShrink:0 }}>{xp} XP</span>
         {user&&<span style={{ fontSize:isMobile?11:10, fontWeight:800, color:notaColor(xpToNota(xp)), fontFamily:"'Orbitron',monospace", background:C.card, padding:"2px 8px", borderRadius:6, border:`1px solid ${notaColor(xpToNota(xp))}55`, flexShrink:0 }}>▶ {xpToNota(xp).toFixed(1)}</span>}
-        {/* ⏱️ Contador ascendente del reto */}
-        {tiempoTranscurrido !== null && (
-          <span style={{
-            fontSize:10, fontWeight:800, fontFamily:"'Orbitron',monospace",
-            background: tiempoFinalizado ? "#ef444422" : !countdownRef.current && tiempoTranscurrido > 0 ? "#f9731622" : `${C.accent}15`,
-            color: tiempoFinalizado ? "#ef4444" : !countdownRef.current && tiempoTranscurrido > 0 ? "#f97316" : C.accent,
-            padding:"1px 7px", borderRadius:6,
-            border:`1px solid ${tiempoFinalizado?"#ef444455":!countdownRef.current&&tiempoTranscurrido>0?"#f9731655":C.accent+"55"}`,
-            display:"flex", alignItems:"center", gap:4
-          }}>
-            {tiempoFinalizado ? "⏰" : !countdownRef.current && tiempoTranscurrido > 0 ? "⏸" : "⏱️"} {formatElapsed(tiempoTranscurrido)}
+        {/* 🔒 Badge reto bloqueado por docente */}
+        {retoBloqueado && (
+          <span style={{ fontSize:10, fontWeight:800, fontFamily:"'Orbitron',monospace",
+            background:"#ef444422", color:"#ef4444", padding:"1px 7px", borderRadius:6,
+            border:"1px solid #ef444455", display:"flex", alignItems:"center", gap:4 }}>
+            🔒 Reto bloqueado
           </span>
         )}
         {xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:11, color:C.accent3, fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:`1px solid ${C.accent3}` }}>+{xpAnim} XP ✨</span>}
       </div>
-      {/* Sin banner de pausa: el timer ya no se pausa al minimizar */}
+      {/* 🔒 Banner reto bloqueado por docente */}
+      {retoBloqueado && !compact && (
+        <div style={{ background:"#ef444415", borderBottom:"1px solid #ef444433",
+          padding:"6px 14px", fontSize:12, color:"#ef4444", display:"flex",
+          alignItems:"center", gap:8, fontWeight:700, flexShrink:0 }}>
+          🔒 <span>Este reto ha sido <strong>bloqueado por el docente</strong>. No puedes enviar más respuestas.</span>
+        </div>
+      )}
 
       {/* ── Barra de progreso del reto (interacciones) ── */}
       {misionData && !compact && (
@@ -3358,13 +3049,13 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
           onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); }}}
           onPaste={handlePaste}
           placeholder={misionAnulada?"🚫 Misión anulada":retoCompleto?"🏁 Reto completado — elige otro reto":isMobile?"Escribe aquí...":"Escribe tu respuesta... (Enter para enviar)"}
-          disabled={retoCompleto || misionAnulada}
+          disabled={retoCompleto || misionAnulada || retoBloqueado}
           rows={1}
         />
         <button
           style={{ width:36,height:36,borderRadius:9,background:`linear-gradient(135deg,${C.accent},${C.accent2})`,border:"none",color:"#fff",fontSize:14,cursor:"pointer",opacity:(loading||!input.trim()||retoCompleto||misionAnulada)?0.4:1,flexShrink:0 }}
           onClick={()=>send()}
-          disabled={loading||!input.trim()||retoCompleto||misionAnulada}
+          disabled={loading||!input.trim()||retoCompleto||misionAnulada||retoBloqueado}
         >➤</button>
       </div>
 
@@ -3434,11 +3125,129 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
 // ═══════════════════════════════════════════════════════════════
 // MISSION MAP
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// CONTROL DE RETOS — Panel docente para bloquear/desbloquear retos
+// Reto bloqueado: inicio_ts = -777 en nexus_timers con estudiante_id = "bloqueo"
+// ═══════════════════════════════════════════════════════════════
+function ControlRetosPanel({ user, misiones }) {
+  const [bloqueados, setBloqueados] = useState({}); // { "misionId_retoId": true/false }
+  const [loading,    setLoading]    = useState({});
+
+  // Cargar estado de bloqueo para todos los retos al montar
+  useEffect(() => {
+    if (!misiones?.length) return;
+    const checks = [];
+    misiones.forEach(m => {
+      (m.retos || []).forEach(r => {
+        checks.push(
+          fetch(`/api/timer?estudiante_id=bloqueo&reto_id=${r.id}&mision_id=${m.id}`)
+            .then(res => res.json())
+            .then(data => ({ key: `${m.id}_${r.id}`, bloqueado: data?.timer?.inicio_ts === -777 }))
+            .catch(() => ({ key: `${m.id}_${r.id}`, bloqueado: false }))
+        );
+      });
+    });
+    Promise.all(checks).then(results => {
+      const estado = {};
+      results.forEach(({ key, bloqueado }) => { estado[key] = bloqueado; });
+      setBloqueados(estado);
+    });
+  }, [misiones]);
+
+  const toggleBloqueo = async (misionId, retoId, esBloqueado) => {
+    const key = `${misionId}_${retoId}`;
+    setLoading(p => ({ ...p, [key]: true }));
+    try {
+      if (esBloqueado) {
+        // Desbloquear: borrar el registro
+        await fetch(`/api/timer?estudiante_id=bloqueo&reto_id=${retoId}&mision_id=${misionId}`, { method: "DELETE" });
+        setBloqueados(p => ({ ...p, [key]: false }));
+      } else {
+        // Bloquear: guardar sentinel -777
+        await fetch("/api/timer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ estudiante_id: "bloqueo", reto_id: String(retoId),
+            mision_id: String(misionId), inicio_ts: -777, duracion_seg: 0 })
+        });
+        setBloqueados(p => ({ ...p, [key]: true }));
+      }
+    } catch(_) {}
+    setLoading(p => ({ ...p, [key]: false }));
+  };
+
+  if (!misiones?.length) return (
+    <Page title="🔒 Control de Retos">
+      <div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center" }}>
+        Crea misiones primero para poder controlar sus retos.
+      </div>
+    </Page>
+  );
+
+  return (
+    <Page title="🔒 Control de Retos">
+      <div style={{ background:"#06b6d415", border:"1px solid #06b6d433", borderRadius:10, padding:"10px 14px", marginBottom:16, fontSize:12, color:"#06b6d4" }}>
+        💡 <strong>Bloquea un reto</strong> para que ningún estudiante pueda seguir enviando respuestas en ese reto. El bloqueo aplica a todos los equipos al instante.
+      </div>
+      {misiones.map(m => (
+        <Card key={m.id} title={`${m.icon || "📘"} ${m.title}`}>
+          {(m.retos || []).length === 0
+            ? <div style={{ color:C.muted, fontSize:12 }}>Sin retos</div>
+            : (m.retos || []).map((r, ri) => {
+              const key        = `${m.id}_${r.id}`;
+              const bloqueado  = !!bloqueados[key];
+              const cargando   = !!loading[key];
+              return (
+                <div key={r.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0",
+                  borderBottom: ri < m.retos.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <div style={{ width:28, height:28, borderRadius:6, background:`${m.color}22`,
+                    border:`1.5px solid ${m.color}55`, display:"flex", alignItems:"center",
+                    justifyContent:"center", fontFamily:"'Orbitron',monospace", fontWeight:900,
+                    fontSize:12, color:m.color, flexShrink:0 }}>{r.id}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color: bloqueado ? "#ef4444" : C.text }}>
+                      {bloqueado ? "🔒 " : "✅ "}{r.title}
+                    </div>
+                    <div style={{ fontSize:11, color:C.muted }}>{"⭐".repeat(r.stars || 1)} · {r.desc || "Sin descripción"}</div>
+                  </div>
+                  <button
+                    onClick={() => toggleBloqueo(m.id, r.id, bloqueado)}
+                    disabled={cargando}
+                    style={{ padding:"7px 16px", borderRadius:8, border:"none", cursor: cargando ? "default" : "pointer",
+                      fontWeight:700, fontSize:12, flexShrink:0,
+                      background: bloqueado ? "#10d98a22" : "#ef444422",
+                      color:      bloqueado ? "#10d98a"   : "#ef4444",
+                      border:     `1px solid ${bloqueado ? "#10d98a55" : "#ef444455"}`,
+                      opacity: cargando ? 0.6 : 1 }}>
+                    {cargando ? "..." : bloqueado ? "🔓 Desbloquear" : "🔒 Bloquear"}
+                  </button>
+                </div>
+              );
+            })
+          }
+        </Card>
+      ))}
+    </Page>
+  );
+}
+
 function MissionMap({ misiones, onSelect }) {
-  const [open, setOpen] = useState(null);
+  const [open, setOpen]         = useState(null);
+  const [bloqueados, setBloqueados] = useState({}); // { "misionId_retoId": true }
+
+  const cargarBloqueos = (m) => {
+    (m.retos || []).forEach(r => {
+      fetch(`/api/timer?estudiante_id=bloqueo&reto_id=${r.id}&mision_id=${m.id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data?.timer?.inicio_ts === -777)
+            setBloqueados(p => ({ ...p, [`${m.id}_${r.id}`]: true }));
+        }).catch(() => {});
+    });
+  };
   if(!misiones.length) return <div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center" }}>Tu docente creará misiones pronto. 🚀</div>;
   return <div>{misiones.map(m=>(
-    <div key={m.id} style={{ background:C.card,border:`1px solid ${open===m.id?m.color+"88":m.color+"33"}`,borderRadius:14,padding:16,marginBottom:14,cursor:"pointer" }} onClick={()=>setOpen(open===m.id?null:m.id)}>
+    <div key={m.id} style={{ background:C.card,border:`1px solid ${open===m.id?m.color+"88":m.color+"33"}`,borderRadius:14,padding:16,marginBottom:14,cursor:"pointer" }} onClick={()=>{ const next = open===m.id?null:m.id; setOpen(next); if(next) cargarBloqueos(m); }}>
       <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
         <span style={{ fontSize:30 }}>{m.icon}</span>
         <div style={{ flex:1, minWidth:0 }}>
@@ -3452,22 +3261,27 @@ function MissionMap({ misiones, onSelect }) {
           {onSelect&&<button style={{ padding:"6px 12px",background:m.color,border:"none",borderRadius:9,color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer" }} onClick={e=>{ e.stopPropagation(); onSelect(m.id); }}>Iniciar ➤</button>}
         </div>
       </div>
-      {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map((r,ri)=>(
-        <div key={r.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:C.surface,borderRadius:8,borderLeft:`3px solid ${m.color}66`,alignItems:"flex-start" }}>
-          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:m.color,width:22,flexShrink:0,paddingTop:2 }}>{r.id}</div>
+      {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map((r,ri)=>{ const rBloqueado = !!bloqueados[`${m.id}_${r.id}`]; const rConBloqueo = {...r, bloqueado: rBloqueado}; return (
+        <div key={rConBloqueo.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:rBloqueado?"#ef444408":C.surface,borderRadius:8,borderLeft:`3px solid ${rBloqueado?"#ef4444":m.color}66`,alignItems:"flex-start" }}>
+          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:rBloqueado?"#ef4444":m.color,width:22,flexShrink:0,paddingTop:2 }}>{rConBloqueo.id}</div>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:12,fontWeight:700,marginBottom:3 }}>{r.title} {"⭐".repeat(r.stars)}{r.duracion && <span style={{ marginLeft:8, fontSize:10, color:"#06b6d4", fontWeight:400 }}>⏱️ {r.duracion} {r.tipo_duracion==="dias"?"día(s)":"hora(s)"}</span>}</div>
-            <div style={{ fontSize:11,color:C.muted }}>{r.desc}</div>
+            <div style={{ fontSize:12,fontWeight:700,marginBottom:3,color:rBloqueado?"#ef4444":C.text }}>{rBloqueado?"🔒 ":""}{rConBloqueo.title} {"⭐".repeat(rConBloqueo.stars)}</div>
+            <div style={{ fontSize:11,color:C.muted }}>{rConBloqueo.desc}</div>
           </div>
           {onSelect && (
-            <button onClick={e=>{ e.stopPropagation(); onSelect(m.id, { id:r.id, title:r.title, stars:r.stars, idx:ri, desc:r.desc, duracion:r.duracion||null, tipo_duracion:r.tipo_duracion||"horas" }); }}
-              style={{ padding:"5px 12px", background:`${m.color}22`, border:`1px solid ${m.color}55`,
-                borderRadius:8, color:m.color, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>
-              ▶ Iniciar
-            </button>
+            rConBloqueo.bloqueado
+              ? <span style={{ padding:"5px 12px", background:"#ef444415", border:"1px solid #ef444433",
+                  borderRadius:8, color:"#ef4444", fontWeight:700, fontSize:11, flexShrink:0, whiteSpace:"nowrap" }}>
+                  🔒 Bloqueado
+                </span>
+              : <button onClick={e=>{ e.stopPropagation(); onSelect(m.id, { id:r.id, title:r.title, stars:r.stars, idx:ri, desc:r.desc, duracion:r.duracion||null, tipo_duracion:r.tipo_duracion||"horas" }); }}
+                  style={{ padding:"5px 12px", background:`${m.color}22`, border:`1px solid ${m.color}55`,
+                    borderRadius:8, color:m.color, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>
+                  ▶ Iniciar
+                </button>
           )}
         </div>
-      ))}</div>}
+      ); })}</div>}
     </div>
   ))}</div>;
 }
@@ -4414,7 +4228,7 @@ function Sidebar({ user, onLogout, tabs, tab, setTab }) {
       <nav style={{ flex:1, padding:"10px 6px", display:"flex", flexDirection:"column", gap:2 }}>
         {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{ width:"100%",display:"flex",alignItems:"center",gap:9,padding:"9px 10px",borderRadius:9,background:tab===t.id?`${C.accent}15`:"transparent",border:"none",borderLeft:tab===t.id?`2px solid ${C.accent}`:"2px solid transparent",color:tab===t.id?C.accent:C.muted,fontSize:12,cursor:"pointer",textAlign:"left" }}><span style={{ fontSize:15,width:18,textAlign:"center" }}>{t.icon}</span><span>{t.label}</span></button>)}
       </nav>
-      <button onClick={() => { notificarLogoutEquipo(); onLogout(); }} style={{ margin:"10px 6px",padding:"9px 10px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:9,cursor:"pointer",fontSize:11 }}>← Cerrar sesión</button>
+      <button onClick={() => { onLogout(); }} style={{ margin:"10px 6px",padding:"9px 10px",background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:9,cursor:"pointer",fontSize:11 }}>← Cerrar sesión</button>
     </aside>
   );
 }
