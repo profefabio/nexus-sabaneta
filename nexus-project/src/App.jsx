@@ -2527,10 +2527,10 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const timerRetoActivoRef = useRef(null); // ID del reto cuyo timer ya está corriendo
 
   // ── Timer del reto ─────────────────────────────────────────────
-  // PAUSA/RESUME: cuando el usuario sale de la app (visibilitychange / pagehide)
-  // se guarda el tiempo RESTANTE en BD como inicio_ts negativo (truco sin
-  // cambiar el schema: inicio_ts < 0 = pausado, abs(inicio_ts)/1000 = seg restantes).
-  // Al volver, se detecta el valor negativo y se reanuda exactamente donde quedó.
+  // El contador es ASCENDENTE (00:00 → duración).
+  // Usa Date.now() - inicio_ts para calcular el tiempo transcurrido en cada tick,
+  // por lo que minimizar, cambiar de app u ocultar la pestaña NO reinicia el contador.
+  // Solo pagehide (cierre real) guarda el sentinel -1 para logout de todos.
   useEffect(() => {
     // ── Guardia: no reiniciar si ya corre el timer para este mismo reto ──
     // IMPORTANTE: usar tiempoRestanteRef.current (no state) para evitar stale closure
@@ -2686,25 +2686,7 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
             return;
           }
 
-          // CASO 1 — Timer PAUSADO (inicio_ts negativo guardado al salir)
-          if (saved && saved.inicio_ts < 0) {
-            const restanteSeg = Math.max(0, Math.abs(saved.inicio_ts) / 1000);
-            if (restanteSeg <= 0) {
-              setTiempoRestante(0);
-              tiempoRestanteRef.current = 0;
-              setTiempoTranscurrido(durSeg);
-              setTiempoFinalizado(true);
-              return;
-            }
-            // Convertir a inicio_ts corrido localmente
-            const nuevoInicio = Date.now() - (durSeg - restanteSeg) * 1000;
-            // Solo el LÍDER actualiza la BD al reanudar
-            if (!esCompanero) saveTimer(nuevoInicio, durSeg);
-            startCountdown(nuevoInicio);
-            return;
-          }
-
-          // CASO 2 — Timer CORRIENDO (inicio_ts positivo normal)
+          // CASO 1 — Timer CORRIENDO (inicio_ts positivo normal)
           if (saved && saved.inicio_ts > 0) {
             const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
             if (elapsed < durSeg) {
@@ -2739,44 +2721,21 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
 
     initTimer();
 
-    // ── PAUSA al ocultar la pestaña (solo LÍDER) ─────────────────────
-    const pausarTimer = () => {
-      if (esCompanero) return; // compañeros no controlan el timer
-      const restante = tiempoRestanteRef.current;
-      if (restante === null || restante <= 0) return;
-      clearInterval(countdownRef.current);
-      countdownRef.current = null;
-      // Guardar tiempo restante como negativo (señal de "pausado")
-      saveTimerBeacon(-(restante * 1000), durSeg);
-    };
-
-    // ── CIERRE DE SESIÓN del líder: guarda sentinel -1 → dispara logout en todos ──
+    // ── CIERRE DE SESIÓN del líder (pagehide = cierre real de pestaña/navegador) ──
+    // Minimizar, cambiar de app o abrir otra pestaña NO interrumpe el timer.
+    // El contador ascendente usa Date.now() - inicio_ts, por lo que siempre
+    // es correcto independientemente de si la pestaña está visible o no.
     const cerrarSesionLider = () => {
       if (esCompanero) return; // solo el líder dispara esto
-      const restante = tiempoRestanteRef.current;
-      if (restante === null && tiempoTranscurrido === null) return; // timer inactivo
       clearInterval(countdownRef.current);
       countdownRef.current = null;
-      // Sentinel -1 = "líder cerró sesión" → compañeros harán logout al detectarlo
+      // Sentinel -1 = "líder cerró sesión definitivamente" → compañeros harán logout
       saveTimerBeacon(-1, durSeg);
     };
 
-    // ── RESUME al volver a la pestaña / app ───────────────────
-    const reanudarTimer = () => {
-      if (esCompanero) return; // compañeros no controlan reanudación
-      clearInterval(countdownRef.current);
-      initTimer(); // recargar desde BD y arrancar desde donde quedó
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) pausarTimer();
-      else reanudarTimer();
-    };
-
-    // pagehide = cierre real de pestaña/navegador → sesión terminada para todos
+    // pagehide = cierre real de pestaña/navegador → logout para todos
     const handlePageHide = () => cerrarSesionLider();
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
 
     // ── SINCRONIZACIÓN PERIÓDICA: todos los miembros del equipo ──────────────
@@ -2799,21 +2758,8 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
             return;
           }
 
-          // ── CASO A: Líder pausó (inicio_ts negativo) → congelar local ────
-          if (saved.inicio_ts < 0) {
-            if (countdownRef.current) {
-              clearInterval(countdownRef.current);
-              countdownRef.current = null;
-              const restanteSeg = Math.max(0, Math.abs(saved.inicio_ts) / 1000);
-              const elapsedCongelado = Math.max(0, durSeg - restanteSeg);
-              setTiempoRestante(Math.round(restanteSeg));
-              tiempoRestanteRef.current = Math.round(restanteSeg);
-              setTiempoTranscurrido(Math.round(elapsedCongelado));
-            }
-            return;
-          }
-
-          // ── CASO B: Líder reanudó (inicio_ts positivo) → reanudar si congelados ──
+          // ── CASO B: Timer corriendo en BD pero intervalo local detenido → reanudar ──
+          // (puede pasar si el compañero recargó la app o hubo fallo de red)
           if (saved.inicio_ts > 0 && !countdownRef.current) {
             const restanteDB = Math.max(0, durSeg - Math.floor((Date.now() - saved.inicio_ts) / 1000));
             if (restanteDB > 0) {
@@ -2828,7 +2774,6 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
     return () => {
       clearInterval(countdownRef.current);
       clearInterval(syncInterval); // limpiar sync al desmontar o cambiar reto
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);
     };
   // retoActual?.duracion: necesario porque al restaurar sesión el reto llega
@@ -3211,14 +3156,7 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
         )}
         {xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:11, color:C.accent3, fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:`1px solid ${C.accent3}` }}>+{xpAnim} XP ✨</span>}
       </div>
-      {/* ⏸ Banner de timer pausado (líder salió de la app) */}
-      {tiempoTranscurrido !== null && !tiempoFinalizado && !countdownRef.current && tiempoTranscurrido > 0 && !compact && (
-        <div style={{ background:"#f9731610", borderBottom:"1px solid #f9731633",
-          padding:"4px 14px", fontSize:11, color:"#f97316", display:"flex",
-          alignItems:"center", gap:6, flexShrink:0 }}>
-          ⏸ <strong>Timer pausado</strong> — reanudará cuando el líder vuelva a la app.
-        </div>
-      )}
+      {/* Sin banner de pausa: el timer ya no se pausa al minimizar */}
 
       {/* ── Barra de progreso del reto (interacciones) ── */}
       {misionData && !compact && (
