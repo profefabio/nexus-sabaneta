@@ -1459,6 +1459,7 @@ function AdminView({ user, onLogout }) {
     <Layout sidebar={<Sidebar user={user} onLogout={onLogout} tab={tab} setTab={setTab} tabs={[
       {id:"dashboard",icon:"⬡",label:"Dashboard"},{id:"progreso",icon:"📊",label:"Progreso"},
       {id:"missions",icon:"🗺️",label:"Misiones"},{id:"equipos",icon:"👥",label:"Equipos"},
+      {id:"control",icon:"🔒",label:"Control Retos"},
       {id:"chats",icon:"💬",label:"Informes Chat"},{id:"anuncios",icon:"📢",label:"Anuncios"},{id:"users",icon:"🔑",label:"Usuarios"},
     ]} />}>
       {tab==="dashboard"&&<DashboardPanel user={user} misiones={misiones} />}
@@ -1949,7 +1950,7 @@ function StudentView({ user, onLogout }) {
   },[user.docente_id, user.grade]);
 
   // ── Restaurar equipo activo al volver a iniciar sesión ────────
-  // Si el estudiante ya tenía equipo y misión → saltar directo a la conversación
+  // Compañero: si ya tiene equipo con misión activa → directo al chat del equipo.
   useEffect(()=>{
     if (!user?.id) return;
     fetch(`/api/companeros?restaurar=1&estudiante_id=${user.id}`)
@@ -1960,7 +1961,7 @@ function StudentView({ user, onLogout }) {
           // Restaurar misión activa del equipo → entra directo al chat
           if (d.equipo.misionId) {
             setMission(d.equipo.misionId);
-            setTab("chat"); // asegurar que el tab activo sea el chat
+            setTab("chat");
           }
           // Restaurar reto desde equipo si viene en la API
           if (d.equipo.retoActual?.id) {
@@ -1974,11 +1975,37 @@ function StudentView({ user, onLogout }) {
               tipo_duracion: d.equipo.retoActual.tipo_duracion || "horas",
             });
           }
-          // Si no viene reto del equipo → lo restauramos en el effect de missionData abajo
+          // Si no viene reto pero sí misión → el effect de missionData lo restaura
         }
       })
       .catch(() => {});
   }, [user?.id]);
+
+  // ── Compañero: reintento si el primer restaurar no encontró equipo ──
+  // Cuando el compañero se une por primera vez (sin historial previo),
+  // companeros?restaurar=1 puede devolver null. Reintentamos a los 2s.
+  useEffect(() => {
+    if (!user?.id || equipo) return; // ya tiene equipo, no reintentar
+    const timer = setTimeout(() => {
+      fetch(`/api/companeros?restaurar=1&estudiante_id=${user.id}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.equipo?.nombre) {
+            setEquipo(d.equipo);
+            if (d.equipo.misionId) { setMission(d.equipo.misionId); setTab("chat"); }
+            if (d.equipo.retoActual?.id) {
+              setRetoActual({
+                id: d.equipo.retoActual.id, title: d.equipo.retoActual.title || "",
+                stars: d.equipo.retoActual.stars || 1, idx: d.equipo.retoActual.idx ?? 0,
+                desc: d.equipo.retoActual.desc || "", duracion: d.equipo.retoActual.duracion || null,
+                tipo_duracion: d.equipo.retoActual.tipo_duracion || "horas",
+              });
+            }
+          }
+        }).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [user?.id, equipo]); // eslint-disable-line
   const missionData = misiones.find(m=>m.id===mission);
 
   // Enriquecer retoActual cuando misionData cargue (para compañeros de equipo que se unen)
