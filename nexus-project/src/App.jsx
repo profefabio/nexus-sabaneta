@@ -2123,6 +2123,7 @@ function StudentView({ user, onLogout }) {
               userName={equipo?`Equipo ${equipo.nombre}`:user.name}
               user={user} misionId={mission} equipo={equipo} misionData={missionData||null} misionTitle={missionData?.title||null}
               retoActual={retoActual} setRetoActual={setRetoActual} todosRetos={missionData?.retos||[]}
+              onLogout={onLogout}
             />
           </div>
         </div>
@@ -2476,7 +2477,7 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva
 // NEXUS CHAT — Ejercicios prácticos · Límite 10 interacciones
 //              Graduación progresiva · Protección anti-copia
 // ═══════════════════════════════════════════════════════════════
-function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle, retoActual, setRetoActual, todosRetos }) {
+function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionData, misionTitle, retoActual, setRetoActual, todosRetos, onLogout }) {
   const isMobile = useIsMobile();
 
   const welcomeMsg = misionData
@@ -2671,11 +2672,19 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
     };
 
     // ── Cargar timer desde BD e iniciar ───────────────────────
+    // REGLA: el COMPAÑERO es READ-ONLY — nunca escribe en BD.
+    //        Solo el LÍDER crea/pausa/reanuda el timer.
     const initTimer = () => {
       fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
         .then(r => r.json())
         .then(data => {
           const saved = data?.timer;
+
+          // SENTINEL -1: líder cerró sesión → todos hacen logout
+          if (saved && saved.inicio_ts === -1) {
+            if (typeof onLogout === "function") onLogout();
+            return;
+          }
 
           // CASO 1 — Timer PAUSADO (inicio_ts negativo guardado al salir)
           if (saved && saved.inicio_ts < 0) {
@@ -2687,10 +2696,10 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
               setTiempoFinalizado(true);
               return;
             }
-            // Convertir a inicio_ts corrido: ajustar como si hubiera empezado
-            // hace (durSeg - restanteSeg) segundos → el interval calcula bien
+            // Convertir a inicio_ts corrido localmente
             const nuevoInicio = Date.now() - (durSeg - restanteSeg) * 1000;
-            saveTimer(nuevoInicio, durSeg); // actualizar BD con estado corriendo
+            // Solo el LÍDER actualiza la BD al reanudar
+            if (!esCompanero) saveTimer(nuevoInicio, durSeg);
             startCountdown(nuevoInicio);
             return;
           }
@@ -2699,40 +2708,62 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
           if (saved && saved.inicio_ts > 0) {
             const elapsed = Math.floor((Date.now() - saved.inicio_ts) / 1000);
             if (elapsed < durSeg) {
-              startCountdown(saved.inicio_ts);
+              startCountdown(saved.inicio_ts); // compañero arranca desde el mismo punto
             } else {
               // Expiró mientras estaba fuera
               setTiempoRestante(0);
               tiempoRestanteRef.current = 0;
               setTiempoTranscurrido(durSeg);
               setTiempoFinalizado(true);
-              fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
-                { method: "DELETE" }).catch(() => {});
+              if (!esCompanero) {
+                fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`,
+                  { method: "DELETE" }).catch(() => {});
+              }
             }
             return;
           }
 
-          // CASO 3 — Sin timer guardado → crear nuevo
-          const inicio = Date.now();
-          saveTimer(inicio, durSeg);
-          startCountdown(inicio);
+          // CASO 3 — Sin timer guardado → solo el LÍDER crea uno nuevo
+          if (!esCompanero) {
+            const inicio = Date.now();
+            saveTimer(inicio, durSeg);
+            startCountdown(inicio);
+          }
+          // Si es compañero y no hay timer aún → esperar al sync (el líder aún no inició)
         })
-        .catch(() => startCountdown(Date.now())); // sin red: solo local
+        .catch(() => {
+          // Sin red: solo el líder arranca localmente
+          if (!esCompanero) startCountdown(Date.now());
+        });
     };
 
     initTimer();
 
-    // ── PAUSA al ocultar la pestaña / app ─────────────────────
+    // ── PAUSA al ocultar la pestaña (solo LÍDER) ─────────────────────
     const pausarTimer = () => {
+      if (esCompanero) return; // compañeros no controlan el timer
       const restante = tiempoRestanteRef.current;
       if (restante === null || restante <= 0) return;
       clearInterval(countdownRef.current);
+      countdownRef.current = null;
       // Guardar tiempo restante como negativo (señal de "pausado")
       saveTimerBeacon(-(restante * 1000), durSeg);
     };
 
+    // ── CIERRE DE SESIÓN del líder: guarda sentinel -1 → dispara logout en todos ──
+    const cerrarSesionLider = () => {
+      if (esCompanero) return; // solo el líder dispara esto
+      const restante = tiempoRestanteRef.current;
+      if (restante === null && tiempoTranscurrido === null) return; // timer inactivo
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+      // Sentinel -1 = "líder cerró sesión" → compañeros harán logout al detectarlo
+      saveTimerBeacon(-1, durSeg);
+    };
+
     // ── RESUME al volver a la pestaña / app ───────────────────
     const reanudarTimer = () => {
+      if (esCompanero) return; // compañeros no controlan reanudación
       clearInterval(countdownRef.current);
       initTimer(); // recargar desde BD y arrancar desde donde quedó
     };
@@ -2742,15 +2773,17 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
       else reanudarTimer();
     };
 
-    // pagehide captura cierre de pestaña / navegador
-    const handlePageHide = () => pausarTimer();
+    // pagehide = cierre real de pestaña/navegador → sesión terminada para todos
+    const handlePageHide = () => cerrarSesionLider();
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
 
     // ── SINCRONIZACIÓN PERIÓDICA: todos los miembros del equipo ──────────────
-    // Cada 8 segundos consulta la BD para detectar si el líder pausó o reanudó.
-    // Solo reacciona a cambios de estado (pausado ↔ corriendo), no reinicia el timer.
+    // Cada 6 segundos consulta la BD para detectar:
+    //   • Sentinel -1: líder cerró sesión → logout inmediato en todos
+    //   • inicio_ts negativo: líder pausó → congelar local
+    //   • inicio_ts positivo + local congelado: líder reanudó → reanudar local
     const syncInterval = setInterval(() => {
       fetch(`/api/timer?estudiante_id=${estudianteId}&reto_id=${retoId}&mision_id=${misionIdStr}`)
         .then(r => r.json())
@@ -2758,7 +2791,15 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
           const saved = data?.timer;
           if (!saved) return;
 
-          // CASO A: Líder pausó (inicio_ts negativo) → congelar si estamos corriendo
+          // ── SENTINEL -1: líder cerró sesión → logout para todos ──────────
+          if (saved.inicio_ts === -1) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            if (typeof onLogout === "function") onLogout();
+            return;
+          }
+
+          // ── CASO A: Líder pausó (inicio_ts negativo) → congelar local ────
           if (saved.inicio_ts < 0) {
             if (countdownRef.current) {
               clearInterval(countdownRef.current);
@@ -2772,17 +2813,17 @@ El docente puede ver el progreso hasta este momento. ¡Buen trabajo con lo que l
             return;
           }
 
-          // CASO B: Líder reanudó (inicio_ts positivo) → reanudar si estamos congelados
+          // ── CASO B: Líder reanudó (inicio_ts positivo) → reanudar si congelados ──
           if (saved.inicio_ts > 0 && !countdownRef.current) {
             const restanteDB = Math.max(0, durSeg - Math.floor((Date.now() - saved.inicio_ts) / 1000));
             if (restanteDB > 0) {
               startCountdown(saved.inicio_ts);
             }
           }
-          // CASO C: Ambos corriendo → no hacer nada (el interval local es la fuente de verdad)
+          // ── CASO C: Todos corriendo → sin acción (intervalo local es fuente de verdad) ──
         })
         .catch(() => {}); // Sin red: mantener estado local
-    }, 8000); // Cada 8 segundos
+    }, 6000); // Cada 6 segundos
 
     return () => {
       clearInterval(countdownRef.current);
