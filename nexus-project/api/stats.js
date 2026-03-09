@@ -83,9 +83,25 @@ module.exports = async function handler(req, res) {
       { data: actividadReciente },
     ] = await Promise.all([qDetalle, qTop, qActividad]);
 
+    // ── También cargar filas en modo libre (mision_id IS NULL) ────────────
+    // Estas filas no son capturadas por el filtro IN(...) de arriba.
+    // Las mergeamos para que el XP libre quede reflejado en el total del estudiante.
+    let progresoLibre = [];
+    if (misionIds !== null) {
+      const { data: libreRows } = await supabase
+        .from("nexus_progreso")
+        .select("estudiante_id, nombre_estudiante, grado, grupo, xp_total, nota, mision_id, nivel, updated_at")
+        .is("mision_id", null)
+        .order("nombre_estudiante", { ascending: true })
+        .limit(2000);
+      progresoLibre = libreRows || [];
+    }
+
     // ── Top estudiantes: agregar XP y calcular nota promedio ──
+    // Combinar filas de misiones + filas en modo libre (mision_id null)
+    const todosProgreso = [...(progresoDetalle || []), ...progresoLibre];
     const estudianteMap = {};
-    (progresoDetalle || []).forEach(p => {
+    todosProgreso.forEach(p => {
       const k = String(p.estudiante_id);
       if (!estudianteMap[k]) {
         estudianteMap[k] = {
@@ -118,10 +134,10 @@ module.exports = async function handler(req, res) {
 
     // ── Resumen ───────────────────────────────────────────────
     const estudiantesActivos = Object.keys(estudianteMap).length;
-    const xpTotal = (progresoDetalle || []).reduce((s, p) => s + (p.xp_total || 0), 0);
+    const xpTotal = todosProgreso.reduce((s, p) => s + (p.xp_total || 0), 0);
 
     const porGrado = {};
-    (progresoDetalle || []).forEach(p => {
+    todosProgreso.forEach(p => {
       const g = p.grado || "Sin grado";
       if (!porGrado[g]) porGrado[g] = { count: 0, xp: 0 };
       porGrado[g].count++;
@@ -129,7 +145,7 @@ module.exports = async function handler(req, res) {
     });
 
     const porMision = {};
-    (progresoDetalle || []).forEach(p => {
+    todosProgreso.forEach(p => {
       const m = p.mision_id || "libre";
       if (!porMision[m]) porMision[m] = { count: 0, xp: 0 };
       porMision[m].count++;
