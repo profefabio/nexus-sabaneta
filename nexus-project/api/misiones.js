@@ -18,6 +18,7 @@ module.exports = async function handler(req, res) {
   // ──────────────────────────────────────────────────────
   if (req.method === "GET") {
     const { docente_id, role } = req.query;
+
     let query = supabase
       .from("nexus_misiones")
       .select("*")
@@ -26,8 +27,14 @@ module.exports = async function handler(req, res) {
 
     if (role === "admin") {
       // Admin ve TODAS las misiones — sin filtro
+
     } else if (role === "student") {
-      if (docente_id) query = query.eq("docente_id", docente_id);
+      // ✅ FIX: Estudiantes ven TODAS las misiones sin filtro por docente_id.
+      // El filtro por grado se aplica en el frontend (App.jsx) usando el campo
+      // `grados` de cada misión vs el grado del estudiante que está logueado.
+      // Esto permite que múltiples docentes publiquen misiones para el mismo grado.
+      // (sin filtro — trae todas)
+
     } else if (docente_id) {
       // Docente: sus propias misiones SOLO — el filtro de colaboraciones
       // se hace después de traer todo para no complicar la query
@@ -64,9 +71,9 @@ module.exports = async function handler(req, res) {
 
     const parse = (m) => ({
       ...m,
-      retos:         typeof m.retos         === "string" ? JSON.parse(m.retos)         : (m.retos || []),
-      grados:        typeof m.grados        === "string" ? JSON.parse(m.grados)        : (m.grados || []),
-      colaboradores: typeof m.colaboradores === "string" ? JSON.parse(m.colaboradores) : (m.colaboradores || []),
+      retos:        typeof m.retos        === "string" ? JSON.parse(m.retos)        : (m.retos        || []),
+      grados:       typeof m.grados       === "string" ? JSON.parse(m.grados)       : (m.grados       || []),
+      colaboradores:typeof m.colaboradores=== "string" ? JSON.parse(m.colaboradores): (m.colaboradores|| []),
       glow: m.color + "59",
     });
 
@@ -77,8 +84,7 @@ module.exports = async function handler(req, res) {
   // POST — crear misión
   // ──────────────────────────────────────────────────────
   if (req.method === "POST") {
-    const { docente_id, docente_nombre, title, icon, color, description,
-            retos, grados, colaboradores } = req.body;
+    const { docente_id, docente_nombre, title, icon, color, description, retos, grados, colaboradores } = req.body;
     if (!docente_id || !title) return res.status(200).json({ error: "Faltan campos requeridos" });
 
     // Validar máximo de retos por misión (límite razonable para el prompt de IA)
@@ -87,9 +93,9 @@ module.exports = async function handler(req, res) {
 
     const payload = {
       docente_id, docente_nombre, title, icon, color, description,
-      retos:         JSON.stringify(retos || []),
-      grados:        JSON.stringify(grados || []),
-      created_at:    new Date().toISOString(),
+      retos:  JSON.stringify(retos  || []),
+      grados: JSON.stringify(grados || []),
+      created_at: new Date().toISOString(),
     };
 
     // Colaboradores: guardar solo si la columna existe (no lanzar error si no)
@@ -107,30 +113,24 @@ module.exports = async function handler(req, res) {
       const result2 = await supabase.from("nexus_misiones").insert(payload).select().single();
       data = result2.data; error = result2.error;
     }
-
     if (error) return res.status(200).json({ error: error.message });
-    return res.status(200).json({
-      mision: {
-        ...data,
-        retos:         retos || [],
-        grados:        grados || [],
-        colaboradores: colaboradoresArr,
-        glow: color + "59",
-      }
-    });
+    return res.status(200).json({ mision: {
+      ...data,
+      retos: retos || [], grados: grados || [], colaboradores: colaboradoresArr,
+      glow: color + "59",
+    }});
   }
 
   // ──────────────────────────────────────────────────────
   // PUT — actualizar misión
   // ──────────────────────────────────────────────────────
   if (req.method === "PUT") {
-    const { id, docente_id, title, icon, color, description,
-            retos, grados, colaboradores } = req.body;
+    const { id, docente_id, title, icon, color, description, retos, grados, colaboradores } = req.body;
     if (!id) return res.status(200).json({ error: "Falta el id de la misión" });
 
     const payload = {
       title, icon, color, description,
-      retos:  JSON.stringify(retos || []),
+      retos:  JSON.stringify(retos  || []),
       grados: JSON.stringify(grados || []),
     };
 
@@ -149,17 +149,12 @@ module.exports = async function handler(req, res) {
         .update(payload).eq("id", id).eq("docente_id", docente_id).select().single();
       data = result2.data; error = result2.error;
     }
-
     if (error) return res.status(200).json({ error: error.message });
-    return res.status(200).json({
-      mision: {
-        ...data,
-        retos: retos || [],
-        grados: grados || [],
-        colaboradores: colaboradoresArr,
-        glow: color + "59",
-      }
-    });
+    return res.status(200).json({ mision: {
+      ...data,
+      retos: retos || [], grados: grados || [], colaboradores: colaboradoresArr,
+      glow: color + "59",
+    }});
   }
 
   // ──────────────────────────────────────────────────────
