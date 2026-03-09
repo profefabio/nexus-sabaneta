@@ -13,6 +13,14 @@ module.exports = async function handler(req, res) {
     });
   }
 
+  // Validación básica de formato de clave
+  const apiKey = process.env.ANTHROPIC_API_KEY.trim();
+  if (!apiKey.startsWith("sk-ant-")) {
+    return res.status(200).json({
+      error: "⚠️ ANTHROPIC_API_KEY tiene formato incorrecto. Debe empezar con 'sk-ant-'. Verifica en Vercel → Settings → Environment Variables.",
+    });
+  }
+
   const { messages, system } = req.body;
   if (!messages || !system)
     return res.status(200).json({ error: "Faltan parámetros en la solicitud." });
@@ -48,7 +56,7 @@ module.exports = async function handler(req, res) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({

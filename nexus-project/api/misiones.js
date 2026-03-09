@@ -81,6 +81,10 @@ module.exports = async function handler(req, res) {
             retos, grados, colaboradores } = req.body;
     if (!docente_id || !title) return res.status(200).json({ error: "Faltan campos requeridos" });
 
+    // Validar máximo de retos por misión (límite razonable para el prompt de IA)
+    const retosArr = Array.isArray(retos) ? retos : [];
+    if (retosArr.length > 20) return res.status(200).json({ error: "Máximo 20 retos por misión." });
+
     const payload = {
       docente_id, docente_nombre, title, icon, color, description,
       retos:         JSON.stringify(retos || []),

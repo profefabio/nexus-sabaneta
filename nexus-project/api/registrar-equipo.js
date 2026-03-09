@@ -17,6 +17,48 @@ module.exports = async function handler(req, res) {
   if (!equipo_nombre || !lider_id || !mision_id || !integrantes?.length)
     return res.status(200).json({ error: "Faltan campos requeridos" });
 
+  // ── Validar nombre de equipo único (para esta misión) ─────────
+  // Evita que dos equipos diferentes tengan el mismo nombre en la misma misión
+  try {
+    const { data: existente } = await supabase
+      .from("nexus_chats")
+      .select("equipo_nombre")
+      .eq("equipo_nombre", equipo_nombre.trim())
+      .eq("mision_id", mision_id)
+      .limit(1);
+
+    if (existente && existente.length > 0) {
+      return res.status(200).json({
+        error: `El nombre de equipo "${equipo_nombre}" ya existe para esta misión. Elige un nombre diferente.`
+      });
+    }
+  } catch (_) {
+    // Si la verificación falla, continuar — no bloquear el registro
+  }
+
+  // ── Validar que ningún integrante ya esté en otro equipo activo ──
+  try {
+    const hace90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const integrantesIds = integrantes.map(m => String(m.id));
+    const { data: yaEnEquipo } = await supabase
+      .from("nexus_chats")
+      .select("estudiante_id, equipo_nombre")
+      .in("estudiante_id", integrantesIds)
+      .not("equipo_nombre", "is", null)
+      .neq("equipo_nombre", equipo_nombre.trim()) // permitir re-registro del mismo equipo
+      .gte("created_at", hace90)
+      .limit(10);
+
+    if (yaEnEquipo && yaEnEquipo.length > 0) {
+      const conflicto = yaEnEquipo[0];
+      return res.status(200).json({
+        error: `Un integrante ya pertenece al equipo "${conflicto.equipo_nombre}". Cada estudiante solo puede estar en un equipo activo.`
+      });
+    }
+  } catch (_) {
+    // Si la verificación falla, continuar
+  }
+
   const ahora = new Date().toISOString();
   const errores = [];
 

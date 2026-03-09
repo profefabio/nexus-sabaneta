@@ -20,10 +20,10 @@ module.exports = async function handler(req, res) {
       { data: estudiantes, error: e2 },
     ] = await Promise.all([
       supabase.from("docentes")
-        .select("id, institucion_id, nombres, apellidos, email, asignatura, fecha_registro")
+        .select("id, nombres, apellidos, email, asignatura, fecha_registro")
         .order("nombres"),
       supabase.from("estudiantes")
-        .select("id, institucion_id, nombres, apellidos, grado, grupo, docente_id, fecha_registro")
+        .select("id, nombres, apellidos, grado, grupo, docente_id, fecha_registro")
         .order("nombres"),
     ]);
     if (e1) console.error("Error docentes:", e1.message);
@@ -151,7 +151,9 @@ module.exports = async function handler(req, res) {
           .select("equipo_nombre, estudiante_id")
           .not("equipo_nombre", "is", null).is("mision_id", null)
           .in("estudiante_id", estIds).limit(2000);
-        (chatLibre || []).forEach(r => chatConEquipo && chatConEquipo.push(r));
+        if (chatLibre && chatLibre.length > 0) {
+          (chatLibre).forEach(r => (chatConEquipo || []).push(r));
+        }
       }
 
       const estudiantesAfectados = [...new Set((chatConEquipo||[]).map(r=>String(r.estudiante_id)))];

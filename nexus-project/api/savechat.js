@@ -53,6 +53,10 @@ module.exports = async function handler(req, res) {
 
   // ── POST: guardar un mensaje ──────────────────────────────────
   if (req.method === "POST") {
+    // Protección: limitar tamaño total del request
+    const bodyStr = JSON.stringify(req.body || {});
+    if (bodyStr.length > 20000) return res.status(200).json({ error: "Mensaje demasiado largo" });
+
     const { estudiante_id, nombre_estudiante, mision_id, mision_title,
             role, content, xp_at_time, equipo_nombre, reto_id } = req.body;
 

@@ -63,7 +63,7 @@ module.exports = async function handler(req, res) {
       .from("nexus_progreso")
       .select("estudiante_id, nombre_estudiante, grado, grupo, xp_total, mision_id, nivel")
       .order("xp_total", { ascending: false })
-      .limit(200);
+      .limit(2000);
 
     let qActividad = supabase
       .from("nexus_progreso")
