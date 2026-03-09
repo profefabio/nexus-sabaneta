@@ -1,6 +1,6 @@
-// api/companeros.js — v4 (fix: equipo_activo en try separado, no bloquea la lista)
-// GET ?grado=X&grupo=Y&exclude_id=Z  → lista compañeros + flag equipo_activo
-// GET ?restaurar=1&estudiante_id=X   → equipo activo del estudiante (restaurar sesión)
+// api/companeros.js — v5 (fix: parsing robusto de liderId, no depende de split(":"))
+// GET ?grado=X&grupo=Y&exclude_id=Z → lista compañeros + flag equipo_activo
+// GET ?restaurar=1&estudiante_id=X  → equipo activo del estudiante (restaurar sesión)
 const { createClient } = require("@supabase/supabase-js");
 
 module.exports = async function handler(req, res) {
@@ -15,12 +15,15 @@ module.exports = async function handler(req, res) {
 
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-  // ── RESTAURAR EQUIPO AL INICIAR SESIÓN ──────────────────────
+  // ── RESTAURAR EQUIPO AL INICIAR SESIÓN ─────────────────────────
   if (req.query.restaurar === "1") {
     const { estudiante_id } = req.query;
     if (!estudiante_id) return res.status(200).json({ equipo: null });
+
     try {
       const hace90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+      // 1. Buscar el último chat con equipo_nombre del estudiante
       const { data: rows } = await supabase
         .from("nexus_chats")
         .select("equipo_nombre, nombre_estudiante, created_at")
@@ -31,28 +34,50 @@ module.exports = async function handler(req, res) {
         .limit(1);
 
       if (!rows || rows.length === 0) return res.status(200).json({ equipo: null });
+
       const nombreEquipo = rows[0].equipo_nombre;
 
-      // Extraer liderId y misionId del mensaje de sistema
+      // 2. Extraer liderId y misionId del mensaje de registro
+      // ── FIX v5: usar regex robusto en lugar de split(":") que falla
+      //    si el nombre del equipo contiene ":"
+      //    Formato: __equipo_registrado__:NOMBRE:lider:ID:mision:MISION_ID
       let liderId = null;
       let misionId = null;
+
       try {
-        // Buscar el mensaje de registro (puede ser role=assistant o system)
+        // Traer TODOS los mensajes de registro del equipo para encontrar el del líder
         const { data: sysMsg } = await supabase
           .from("nexus_chats")
-          .select("content")
+          .select("content, estudiante_id")
           .eq("equipo_nombre", nombreEquipo)
           .like("content", "__equipo_registrado__%")
           .order("created_at", { ascending: true })
-          .limit(1);
+          .limit(20);
+
         if (sysMsg?.length > 0) {
-          // formato: __equipo_registrado__:NOMBRE:lider:ID:mision:MISION_ID
-          const partes = (sysMsg[0].content || "").split(":");
-          liderId = partes[3] || null;
-          misionId = partes[5] || null;
+          for (const row of sysMsg) {
+            const c = row.content || "";
+            // Extraer lider:ID usando regex — no depende de cuántos ":" haya antes
+            const liderMatch = c.match(/:lider:([^:]+):/);
+            // Extraer mision:ID — toma todo lo que sigue a ":mision:"
+            const misionMatch = c.match(/:mision:(.+)$/);
+
+            if (liderMatch) {
+              liderId = liderMatch[1];
+              misionId = misionMatch ? misionMatch[1] : null;
+              break; // con el primero es suficiente
+            }
+          }
+
+          // ── Fallback: si el regex falló, el lider es el primer integrante
+          //    que aparece en los registros (el que registró el equipo primero)
+          if (!liderId && sysMsg.length > 0) {
+            liderId = String(sysMsg[0].estudiante_id);
+          }
         }
       } catch(_) {}
 
+      // 3. Construir lista de integrantes (excluyendo al estudiante que consulta)
       const { data: integrantesRows } = await supabase
         .from("nexus_chats")
         .select("estudiante_id, nombre_estudiante")
@@ -70,33 +95,44 @@ module.exports = async function handler(req, res) {
           const partes = (r.nombre_estudiante || "").split(" ");
           integrantes.push({
             id: r.estudiante_id,
-            nombres: partes.slice(0, Math.ceil(partes.length / 2)).join(" "),
+            nombres:   partes.slice(0, Math.ceil(partes.length / 2)).join(" "),
             apellidos: partes.slice(Math.ceil(partes.length / 2)).join(" "),
           });
         }
       });
-      // Buscar el último reto activo del equipo (el más reciente con reto_id != null)
+
+      // 4. Buscar el último reto activo del equipo
       let retoActual = null;
       try {
+        // Buscar en los chats guardados con el ID del líder (donde se guardan los mensajes reales)
+        const liderIdBuscar = liderId || String(estudiante_id);
         const { data: retoRows } = await supabase
           .from("nexus_chats")
-          .select("reto_id, content")
-          .eq("equipo_nombre", nombreEquipo)
+          .select("reto_id, content, mision_id")
+          .eq("estudiante_id", liderIdBuscar)
           .not("reto_id", "is", null)
           .order("created_at", { ascending: false })
           .limit(1);
+
         if (retoRows?.length > 0 && retoRows[0].reto_id) {
           retoActual = { id: retoRows[0].reto_id };
+          // Si no teníamos misionId, usar el del último chat del líder
+          if (!misionId && retoRows[0].mision_id) {
+            misionId = retoRows[0].mision_id;
+          }
         }
       } catch(_) {}
 
-      return res.status(200).json({ equipo: { nombre: nombreEquipo, integrantes, liderId, misionId, retoActual } });
+      return res.status(200).json({
+        equipo: { nombre: nombreEquipo, integrantes, liderId, misionId, retoActual }
+      });
+
     } catch (err) {
       return res.status(200).json({ equipo: null });
     }
   }
 
-  // ── LISTA DE COMPAÑEROS ──────────────────────────────────────
+  // ── LISTA DE COMPAÑEROS ─────────────────────────────────────────
   const { grado, grupo, exclude_id } = req.query;
   if (!grado || !grupo) return res.status(200).json({ error: "Faltan grado y grupo", companeros: [] });
 
@@ -135,6 +171,7 @@ module.exports = async function handler(req, res) {
       .gte("created_at", hace90)
       .order("created_at", { ascending: false })
       .limit(200);
+
     (chatRows || []).forEach(row => {
       const id = String(row.estudiante_id);
       if (!equipoActivoMap[id]) equipoActivoMap[id] = row.equipo_nombre;
@@ -149,6 +186,7 @@ module.exports = async function handler(req, res) {
       .not("equipo_nombre", "is", null)
       .in("estudiante_id", listaIds)
       .limit(200);
+
     (progRows || []).forEach(row => {
       const id = String(row.estudiante_id);
       if (!equipoActivoMap[id]) equipoActivoMap[id] = row.equipo_nombre;
