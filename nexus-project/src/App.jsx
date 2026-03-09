@@ -1949,6 +1949,43 @@ function StudentView({ user, onLogout }) {
     });
   },[user.docente_id, user.grade]);
 
+  // ── Restaurar última misión activa para estudiantes SIN equipo ───────────
+  // Busca el último __reto_activo__:X en los chats del estudiante y restaura
+  // tanto la misión como el reto, para que al iniciar sesión continúe donde iba.
+  useEffect(() => {
+    if (!user?.id || mission || !misiones.length || equipo) return;
+    fetch(`/api/savechat?estudiante_id=${user.id}`)
+      .then(r => r.json())
+      .then(d => {
+        const msgs = d.msgs || [];
+        // Buscar el último marcador __reto_activo__ (tiene mision_id en la fila)
+        const ultimoReto = [...msgs]
+          .reverse()
+          .find(m => String(m.content || "").startsWith("__reto_activo__:"));
+        if (!ultimoReto?.mision_id) return;
+        // Verificar que esa misión sigue disponible para este grado
+        const misionOk = misiones.find(m => String(m.id) === String(ultimoReto.mision_id));
+        if (!misionOk) return;
+        setMission(ultimoReto.mision_id);
+        // Restaurar el reto directamente si lo encontramos en los datos de la misión
+        const retoId = ultimoReto.content.split(":")[1];
+        const reto = (misionOk.retos || []).find(r => String(r.id) === String(retoId));
+        if (reto) {
+          const idx = misionOk.retos.indexOf(reto);
+          setRetoActual({
+            id:            reto.id,
+            title:         reto.title         || "",
+            stars:         reto.stars         || 1,
+            idx,
+            desc:          reto.desc          || "",
+            duracion:      reto.duracion      || null,
+            tipo_duracion: reto.tipo_duracion || "horas",
+          });
+        }
+      })
+      .catch(() => {});
+  }, [misiones, user?.id]); // eslint-disable-line
+
   // ── Restaurar equipo activo al volver a iniciar sesión ────────
   // Compañero: si ya tiene equipo con misión activa → directo al chat del equipo.
   useEffect(()=>{
@@ -2158,7 +2195,7 @@ function StudentView({ user, onLogout }) {
           </div>
         </div>
       )}
-      {tab==="missions"&&<Page title="🗺️ Misiones"><MissionMap misiones={misiones} onSelect={(mId, reto)=>{setMission(mId);if(reto)setRetoActual(reto);setTab("chat");}} /></Page>}
+      {tab==="missions"&&<Page title="🗺️ Misiones"><MissionMap misiones={misiones} misionActiva={mission} retoActual={retoActual} onSelect={(mId, reto)=>{setMission(mId);if(reto)setRetoActual(reto);setTab("chat");}} /></Page>}
       {tab==="team"&&<EquipoPanel user={user} equipo={equipo} setEquipo={setEquipo}
         misiones={misiones} misionActiva={mission} setMisionActiva={setMission}
         onIrChat={()=>setTab("chat")} />}
@@ -3266,9 +3303,14 @@ function ControlRetosPanel({ user, misiones }) {
   );
 }
 
-function MissionMap({ misiones, onSelect }) {
+function MissionMap({ misiones, onSelect, misionActiva, retoActual }) {
   const [open, setOpen]         = useState(null);
   const [bloqueados, setBloqueados] = useState({}); // { "misionId_retoId": true }
+
+  // Abrir automáticamente la misión activa al cargar
+  useEffect(() => {
+    if (misionActiva && !open) setOpen(misionActiva);
+  }, [misionActiva]); // eslint-disable-line
 
   const cargarBloqueos = (m) => {
     (m.retos || []).forEach(r => {
@@ -3281,26 +3323,61 @@ function MissionMap({ misiones, onSelect }) {
     });
   };
   if(!misiones.length) return <div style={{ color:C.muted, fontSize:13, padding:20, textAlign:"center" }}>Tu docente creará misiones pronto. 🚀</div>;
-  return <div>{misiones.map(m=>(
-    <div key={m.id} style={{ background:C.card,border:`1px solid ${open===m.id?m.color+"88":m.color+"33"}`,borderRadius:14,padding:16,marginBottom:14,cursor:"pointer" }} onClick={()=>{ const next = open===m.id?null:m.id; setOpen(next); if(next) cargarBloqueos(m); }}>
+  return <div>{misiones.map(m=>{
+    const esActiva = String(m.id) === String(misionActiva);
+    return (
+    <div key={m.id} style={{ background:C.card,border:`1px solid ${open===m.id?m.color+"88":esActiva?m.color+"66":m.color+"33"}`,borderRadius:14,padding:16,marginBottom:14,cursor:"pointer",
+      boxShadow: esActiva ? `0 0 14px ${m.color}22` : "none" }}
+      onClick={()=>{ const next = open===m.id?null:m.id; setOpen(next); if(next) cargarBloqueos(m); }}>
       <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
         <span style={{ fontSize:30 }}>{m.icon}</span>
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:m.color }}>{m.title}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap" }}>
+            <span style={{ fontSize:14, fontWeight:700, color:m.color }}>{m.title}</span>
+            {esActiva && <span style={{ padding:"2px 8px", borderRadius:20, fontSize:9, fontWeight:800,
+              background:`${m.color}30`, color:m.color, border:`1px solid ${m.color}55`,
+              textTransform:"uppercase", letterSpacing:1 }}>▶ En progreso</span>}
+          </div>
           <div style={{ fontSize:11, color:C.muted, marginTop:2, marginBottom:7 }}>{m.description}</div>
           <div style={{ fontSize:10, color:C.accent, marginBottom:5 }}>👤 {m.docente_nombre||"Docente"}</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>{(m.retos||[]).map(r=><span key={r.id} style={{ padding:"2px 7px",borderRadius:5,fontSize:10,background:m.color+"22",color:m.color }}>{"⭐".repeat(r.stars)}</span>)}</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>{(m.retos||[]).map(r=>{
+            const esRetoActivo = esActiva && retoActual && String(retoActual.id) === String(r.id);
+            return <span key={r.id} style={{ padding:"2px 7px",borderRadius:5,fontSize:10,
+              background: esRetoActivo ? m.color : m.color+"22",
+              color: esRetoActivo ? "#fff" : m.color,
+              fontWeight: esRetoActivo ? 700 : 400 }}>
+              {esRetoActivo ? "▶ " : ""}{"⭐".repeat(r.stars)}
+            </span>;
+          })}</div>
+          {esActiva && retoActual && (
+            <div style={{ marginTop:6, fontSize:10, color:m.color, fontWeight:600 }}>
+              🎯 Último reto: #{retoActual.id} {retoActual.title}
+            </div>
+          )}
         </div>
         <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:7, flexShrink:0 }}>
           <span style={{ padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:700,background:m.color+"22",color:m.color }}>{(m.retos||[]).length} retos</span>
-          {onSelect&&<button style={{ padding:"6px 12px",background:m.color,border:"none",borderRadius:9,color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer" }} onClick={e=>{ e.stopPropagation(); onSelect(m.id); }}>Iniciar ➤</button>}
+          {onSelect&&<button style={{ padding:"6px 12px",background:m.color,border:"none",borderRadius:9,color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer" }} onClick={e=>{ e.stopPropagation(); onSelect(m.id); }}>
+            {esActiva ? "Continuar ▶" : "Iniciar ➤"}
+          </button>}
         </div>
       </div>
-      {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map((r,ri)=>{ const rBloqueado = !!bloqueados[`${m.id}_${r.id}`]; const rConBloqueo = {...r, bloqueado: rBloqueado}; return (
-        <div key={rConBloqueo.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:rBloqueado?"#ef444408":`${m.color}08`,borderRadius:8,borderLeft:`3px solid ${rBloqueado?"#ef4444":C.accent3}`,alignItems:"flex-start" }}>
-          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:rBloqueado?"#ef4444":C.accent3,width:22,flexShrink:0,paddingTop:2 }}>{rConBloqueo.id}</div>
+      {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map((r,ri)=>{ const rBloqueado = !!bloqueados[`${m.id}_${r.id}`]; const esRetoActivo = esActiva && retoActual && String(retoActual.id) === String(r.id); const rConBloqueo = {...r, bloqueado: rBloqueado}; return (
+        <div key={rConBloqueo.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,
+          background: esRetoActivo ? `${m.color}18` : rBloqueado?"#ef444408":`${m.color}08`,
+          borderRadius:8,
+          borderLeft:`3px solid ${esRetoActivo ? m.color : rBloqueado?"#ef4444":C.accent3}`,
+          alignItems:"flex-start" }}>
+          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,
+            color: esRetoActivo ? m.color : rBloqueado?"#ef4444":C.accent3,
+            width:22,flexShrink:0,paddingTop:2 }}>{rConBloqueo.id}</div>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:12,fontWeight:700,marginBottom:3,color:rBloqueado?"#ef4444":C.accent3 }}>{rBloqueado?"🔒 ":"✅ "}{rConBloqueo.title} {"⭐".repeat(rConBloqueo.stars)}</div>
+            <div style={{ fontSize:12,fontWeight:700,marginBottom:3,
+              color: esRetoActivo ? m.color : rBloqueado?"#ef4444":C.accent3 }}>
+              {esRetoActivo ? "▶ " : rBloqueado?"🔒 ":"✅ "}{rConBloqueo.title} {"⭐".repeat(rConBloqueo.stars)}
+              {esRetoActivo && <span style={{ marginLeft:6, fontSize:10, fontWeight:700,
+                padding:"1px 6px", borderRadius:5, background:`${m.color}30`, color:m.color }}>En progreso</span>}
+            </div>
             <div style={{ fontSize:11,color:C.muted }}>{rConBloqueo.desc}</div>
           </div>
           {onSelect && (
@@ -3310,15 +3387,18 @@ function MissionMap({ misiones, onSelect }) {
                   🔒 Bloqueado
                 </span>
               : <button onClick={e=>{ e.stopPropagation(); onSelect(m.id, { id:r.id, title:r.title, stars:r.stars, idx:ri, desc:r.desc, duracion:r.duracion||null, tipo_duracion:r.tipo_duracion||"horas" }); }}
-                  style={{ padding:"5px 12px", background:`${m.color}22`, border:`1px solid ${m.color}55`,
-                    borderRadius:8, color:m.color, fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>
-                  ▶ Iniciar
+                  style={{ padding:"5px 12px",
+                    background: esRetoActivo ? m.color : `${m.color}22`,
+                    border:`1px solid ${m.color}55`,
+                    borderRadius:8, color: esRetoActivo ? "#fff" : m.color,
+                    fontWeight:700, fontSize:11, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>
+                  {esRetoActivo ? "▶ Continuar" : "▶ Iniciar"}
                 </button>
           )}
         </div>
       ); })}</div>}
     </div>
-  ))}</div>;
+  );})}</div>;
 }
 
 
