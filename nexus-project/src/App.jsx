@@ -67,18 +67,19 @@ const callNexus = async (messages, system, _retries=3) => {
 };
 
 const saveProgress = async (user, xp, nivel, misionId, equipo=null) => {
-  try {
-    await fetch("/api/saveprogress", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        estudiante_id: user.id,
-        nombre_estudiante: user.name,
-        grado: user.grade||"", grupo: user.group||"",
-        xp_total: xp, nivel, mision_id: misionId||null,
-        equipo: equipo || null,
-      }),
-    });
-  } catch(_) {}
+  const res = await fetch("/api/saveprogress", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      estudiante_id: user.id,
+      nombre_estudiante: user.name,
+      grado: user.grade||"", grupo: user.group||"",
+      xp_total: xp, nivel, mision_id: misionId||null,
+      equipo: equipo || null,
+    }),
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(d.error);
+  return d;
 };
 
 // Guardar un mensaje en el historial de chat
@@ -2520,6 +2521,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const [loading, setLoading] = useState(false);
   const [xp, setXp] = useState(0);
   const [xpAnim, setXpAnim] = useState(null);
+  const [savedIndicator, setSavedIndicator] = useState(false); // indicador "✓ Guardado"
   const [xpEnEsteReto, setXpEnEsteReto] = useState(0); // XP ganado en el reto actual
   const [listoParaAvanzar, setListoParaAvanzar] = useState(false); // 80%+ del reto completado
   const MAX_XP_RETO = 100; // XP máximo por reto (4 respuestas perfectas = 100 XP)
@@ -2720,7 +2722,9 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       if (user?.id && !compact) {
         clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(
-          () => saveProgress(user, nx, Math.floor(nx/50)+1, misionId, equipo),
+          () => saveProgress(user, nx, Math.floor(nx/50)+1, misionId, equipo)
+            .then(() => { setSavedIndicator(true); setTimeout(() => setSavedIndicator(false), 2500); })
+            .catch(() => {}),
           3000
         );
       }
@@ -2918,6 +2922,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
           </span>
         )}
         {xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:11, color:C.accent3, fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:`1px solid ${C.accent3}` }}>+{xpAnim} XP ✨</span>}
+        {savedIndicator&&!xpAnim&&<span style={{ position:"absolute", right:12, top:-22, fontSize:10, color:"#10d98a", fontWeight:700, background:C.card, padding:"2px 7px", borderRadius:7, border:"1px solid #10d98a55" }}>💾 Guardado</span>}
       </div>
       {/* 🔒 Banner reto bloqueado por docente */}
       {retoBloqueado && !compact && (
@@ -3226,13 +3231,17 @@ function ControlRetosPanel({ user, misiones }) {
               const cargando   = !!loading[key];
               return (
                 <div key={r.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0",
-                  borderBottom: ri < m.retos.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                  <div style={{ width:28, height:28, borderRadius:6, background:`${m.color}22`,
-                    border:`1.5px solid ${m.color}55`, display:"flex", alignItems:"center",
+                  borderBottom: ri < m.retos.length - 1 ? `1px solid ${C.border}` : "none",
+                  background: bloqueado ? "#ef444408" : `${C.accent3}05`,
+                  borderRadius:8, padding:"10px 8px",
+                  marginBottom: ri < m.retos.length - 1 ? 4 : 0 }}>
+                  <div style={{ width:28, height:28, borderRadius:6,
+                    background: bloqueado ? "#ef444422" : `${C.accent3}22`,
+                    border:`1.5px solid ${bloqueado ? "#ef444455" : C.accent3+"55"}`, display:"flex", alignItems:"center",
                     justifyContent:"center", fontFamily:"'Orbitron',monospace", fontWeight:900,
-                    fontSize:12, color:m.color, flexShrink:0 }}>{r.id}</div>
+                    fontSize:12, color: bloqueado ? "#ef4444" : C.accent3, flexShrink:0 }}>{r.id}</div>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color: bloqueado ? "#ef4444" : C.text }}>
+                    <div style={{ fontSize:13, fontWeight:700, color: bloqueado ? "#ef4444" : C.accent3 }}>
                       {bloqueado ? "🔒 " : "✅ "}{r.title}
                     </div>
                     <div style={{ fontSize:11, color:C.muted }}>{"⭐".repeat(r.stars || 1)} · {r.desc || "Sin descripción"}</div>
@@ -3289,10 +3298,10 @@ function MissionMap({ misiones, onSelect }) {
         </div>
       </div>
       {open===m.id&&<div style={{ marginTop:14,borderTop:`1px solid ${m.color}33`,paddingTop:14 }}>{(m.retos||[]).map((r,ri)=>{ const rBloqueado = !!bloqueados[`${m.id}_${r.id}`]; const rConBloqueo = {...r, bloqueado: rBloqueado}; return (
-        <div key={rConBloqueo.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:rBloqueado?"#ef444408":C.surface,borderRadius:8,borderLeft:`3px solid ${rBloqueado?"#ef4444":m.color}66`,alignItems:"flex-start" }}>
-          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:rBloqueado?"#ef4444":m.color,width:22,flexShrink:0,paddingTop:2 }}>{rConBloqueo.id}</div>
+        <div key={rConBloqueo.id} style={{ display:"flex",gap:10,padding:"10px 12px",marginBottom:7,background:rBloqueado?"#ef444408":`${m.color}08`,borderRadius:8,borderLeft:`3px solid ${rBloqueado?"#ef4444":C.accent3}`,alignItems:"flex-start" }}>
+          <div style={{ fontFamily:"'Orbitron',monospace",fontWeight:900,fontSize:13,color:rBloqueado?"#ef4444":C.accent3,width:22,flexShrink:0,paddingTop:2 }}>{rConBloqueo.id}</div>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:12,fontWeight:700,marginBottom:3,color:rBloqueado?"#ef4444":C.text }}>{rBloqueado?"🔒 ":""}{rConBloqueo.title} {"⭐".repeat(rConBloqueo.stars)}</div>
+            <div style={{ fontSize:12,fontWeight:700,marginBottom:3,color:rBloqueado?"#ef4444":C.accent3 }}>{rBloqueado?"🔒 ":"✅ "}{rConBloqueo.title} {"⭐".repeat(rConBloqueo.stars)}</div>
             <div style={{ fontSize:11,color:C.muted }}>{rConBloqueo.desc}</div>
           </div>
           {onSelect && (
