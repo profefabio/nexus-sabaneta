@@ -2054,13 +2054,7 @@ function StudentView({ user, onLogout }) {
     const necesitaEnriquecer = !retoActual.title ||
       retoActual.duracion === null ||
       retoActual.duracion === undefined;
-    /* debug removed {
-      necesitaEnriquecer, 
-      retoActualId: retoActual?.id,
-      retoActualTitle: retoActual?.title,
-      retoActualDuracion: retoActual?.duracion,
-      misionDataRetos: missionData?.retos?.map(r=>({id:r.id,duracion:r.duracion}))
-    });
+    // debug removed
     if (necesitaEnriquecer) {
       const retoCompleto = missionData.retos.find(r =>
         String(r.id) === String(retoActual.id)
