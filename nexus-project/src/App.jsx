@@ -99,8 +99,7 @@ const saveChatMsg = async (user, role, content, misionId, misionTitle, xp, equip
       }),
     });
     const d = await r.json();
-    if (d.error) console.warn("[NEXUS savechat error]", d.error);
-  } catch(e) { console.warn("[NEXUS savechat fetch error]", e.message); }
+  } catch(e) { /* silent */ }
 };
 
 // Cargar historial de chat (por misión y opcionalmente por reto)
@@ -2032,7 +2031,7 @@ function StudentView({ user, onLogout }) {
         const reto = missionData.retos.find(r => String(r.id) === String(retoId));
         if (!reto) return;
         const idx = missionData.retos.indexOf(reto);
-        console.log("[NEXUS] ✅ Reto restaurado desde BD →", reto.id, reto.title, "duracion:", reto.duracion);
+        // debug removed
         setRetoActual({
           id:            reto.id,
           title:         reto.title         || "",
@@ -2053,7 +2052,7 @@ function StudentView({ user, onLogout }) {
     const necesitaEnriquecer = !retoActual.title ||
       retoActual.duracion === null ||
       retoActual.duracion === undefined;
-    console.log("[NEXUS ENRICH]", {
+    /* debug removed {
       necesitaEnriquecer, 
       retoActualId: retoActual?.id,
       retoActualTitle: retoActual?.title,
@@ -2324,9 +2323,7 @@ function EquipoPanel({ user, equipo, setEquipo, onIrChat, misiones, misionActiva
         })
       });
       const resultado = await resp.json();
-      if (resultado.errores) console.warn("Errores al registrar equipo:", resultado.errores);
     } catch(e) {
-      console.error("Error registrando equipo:", e);
     }
 
     setTimeout(() => { setSaved(false); onIrChat(); }, 1200);
@@ -2667,7 +2664,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
     const estudianteId = user.id;
     const misionIdStr  = String(misionId);
 
-    console.log("[NEXUS TIMER] 🔍 Buscando timer activo en BD para restaurar reto...");
+    // debug removed
 
     // Consultar timer para cada reto en paralelo y tomar el primero activo
     Promise.all(
@@ -2681,12 +2678,12 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
       // Buscar el primer reto con timer activo (inicio_ts != null)
       const activo = resultados.find(r => r.timer !== null);
       if (!activo) {
-        console.log("[NEXUS TIMER] 🔍 Sin timer activo en BD — el reto se activará cuando el estudiante elija uno");
+        // debug removed
         return;
       }
       const { reto } = activo;
       const idx = misionData.retos.indexOf(reto);
-      console.log("[NEXUS TIMER] ✅ Reto restaurado desde timer BD →", reto.id, reto.title, "duracion:", reto.duracion);
+      // debug removed
       setRetoActual({
         id:            reto.id,
         title:         reto.title         || "",
@@ -2797,7 +2794,9 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
   const handleCopy = () => {
     if (compact) return;
     const selected = window.getSelection()?.toString()?.trim();
-    if (!selected || selected.length < 5) return; // ignorar selecciones muy cortas
+    // Ignorar selecciones cortas (< 15 chars) para evitar falsos positivos
+    // cuando el estudiante copia solo una palabra o el título del reto
+    if (!selected || selected.length < 15) return;
     registrarIntentoCopia(null);
   };
 
@@ -3139,7 +3138,7 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
             </div>
             {equipo?.nombre && (
               <div style={{ fontSize:12, color:"#fca5a5", marginBottom:16, padding:"8px 12px", background:"#2a0000", borderRadius:10, border:"1px solid #3f0000" }}>
-                ⚠️ Nota 1.0 aplicada a <strong>todos los integrantes</strong> del equipo <strong>{equipo.nombre}</strong>
+                ⚠️ Nota {xpToNota(xp).toFixed(1)} aplicada a <strong>todos los integrantes</strong> del equipo <strong>{equipo.nombre}</strong>
               </div>
             )}
             <div style={{ fontSize:11, color:"#7f1d1d", padding:"14px 16px", background:"#2a0000", borderRadius:12, lineHeight:1.8, border:"1px solid #3f0000" }}>
