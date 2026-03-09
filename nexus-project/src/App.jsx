@@ -1915,6 +1915,7 @@ function StudentView({ user, onLogout }) {
   const [showEquipo, setShowEquipo] = useState(false);
   // retoActual: { id, title, stars, idx } — reto seleccionado dentro de la misión
   const [retoActual, setRetoActual] = useState(null);
+  const [modoIndividual, setModoIndividual] = useState(false); // toggle equipo vs individual
   const isMobile = useIsMobile();
 
   // 🔔 Anuncios del docente
@@ -2140,14 +2141,35 @@ function StudentView({ user, onLogout }) {
             )}
           </div>
           <div style={{ flex:1, overflow:"hidden", minHeight:0, padding: isMobile?"0":"0 22px 22px", display:"flex", flexDirection:"column" }}>
+            {/* Toggle modo equipo/individual — solo visible si hay equipo formado */}
+            {equipo && (
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, padding:"4px 8px", background:"#ffffff08", borderRadius:10, flexShrink:0 }}>
+                <span style={{ fontSize:11, color:"#aaa" }}>Modo:</span>
+                <button
+                  onClick={()=>setModoIndividual(false)}
+                  style={{ fontSize:11, padding:"3px 10px", borderRadius:8, border:"none", cursor:"pointer",
+                    background: !modoIndividual ? "#6c63ff" : "#ffffff18",
+                    color: !modoIndividual ? "#fff" : "#aaa", fontWeight: !modoIndividual ? 700 : 400 }}>
+                  👥 Equipo
+                </button>
+                <button
+                  onClick={()=>setModoIndividual(true)}
+                  style={{ fontSize:11, padding:"3px 10px", borderRadius:8, border:"none", cursor:"pointer",
+                    background: modoIndividual ? "#22c55e" : "#ffffff18",
+                    color: modoIndividual ? "#fff" : "#aaa", fontWeight: modoIndividual ? 700 : 400 }}>
+                  👤 Individual
+                </button>
+                {!modoIndividual && <span style={{ fontSize:10, color:"#6c63ff99", marginLeft:2 }}>({equipo.nombre})</span>}
+              </div>
+            )}
             <NexusChat
               prompt={buildMissionPrompt(
                 missionData||null,
                 user.grade||"7-11",
-                equipo?`Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes. Líder: ${user.name}. Compañeros: ${equipo.integrantes.map(i=>`${i.nombres} ${i.apellidos}`).join(", ")}. Dirígete al equipo completo e incluye actividades para que todos participen aunque solo uno tenga el dispositivo.`:""
+                (!modoIndividual && equipo)?`Trabajan en equipo: "${equipo.nombre}" con ${equipo.integrantes.length+1} integrantes. Líder: ${user.name}. Compañeros: ${equipo.integrantes.map(i=>`${i.nombres} ${i.apellidos}`).join(", ")}. Dirígete al equipo completo e incluye actividades para que todos participen aunque solo uno tenga el dispositivo.`:""
               )}
-              userName={equipo?`Equipo ${equipo.nombre}`:user.name}
-              user={user} misionId={mission} equipo={equipo} misionData={missionData||null} misionTitle={missionData?.title||null}
+              userName={(!modoIndividual && equipo)?`Equipo ${equipo.nombre}`:user.name}
+              user={user} misionId={mission} equipo={modoIndividual ? null : equipo} misionData={missionData||null} misionTitle={missionData?.title||null}
               retoActual={retoActual} setRetoActual={setRetoActual} todosRetos={missionData?.retos||[]}
               onLogout={onLogout}
             />
@@ -2609,9 +2631,15 @@ function NexusChat({ prompt, userName, compact, user, misionId, equipo, misionDa
 
     setHistorialCargado(false);
 
-    // FIX BUG-2: si el usuario es compañero (no líder del equipo), los mensajes
-    // reales fueron guardados bajo el ID del líder, no del compañero.
-    // Usamos liderId para cargar el historial compartido del equipo.
+    // FIX v5: si hay equipo activo pero el liderId todavía no llegó,
+    // esperar — el effect se re-ejecutará cuando equipo?.liderId cambie de null a valor.
+    // Esto evita cargar el historial del compañero (vacío) cuando debería cargarse el del líder.
+    if (equipo && !equipo.liderId) {
+      // liderId pendiente → no cargar aún
+      return;
+    }
+
+    // Si soy compañero (no líder), usar el ID del líder para leer el historial compartido
     const histStudentId =
       equipo?.liderId && String(equipo.liderId) !== String(user?.id)
         ? equipo.liderId
